@@ -4,9 +4,8 @@ import type React from "react"
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { createUserWithEmailAndPassword } from "firebase/auth"
-import { collection, doc, getDocs, query, setDoc, where } from "firebase/firestore"
-import { auth, db } from "@/lib/firebaseConfig"
+import { collection, getDocs, query, where } from "firebase/firestore"
+import { db } from "@/lib/firebaseConfig"
 import { toast } from "react-toastify"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -34,6 +33,8 @@ const CrearUsuario = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        console.log("🔄 Cargando clientes y temas...")
+
         // Cargar todos los clientes
         const clientesSnapshot = await getDocs(collection(db, "clients"))
         const clientesData = clientesSnapshot.docs.map((doc) => ({
@@ -41,6 +42,7 @@ const CrearUsuario = () => {
           ...doc.data(),
         }))
         setClientes(clientesData)
+        console.log("✅ Clientes cargados:", clientesData.length)
 
         // Cargar todos los temas
         const temasSnapshot = await getDocs(collection(db, "themes"))
@@ -49,8 +51,9 @@ const CrearUsuario = () => {
           ...doc.data(),
         }))
         setTemas(temasData)
+        console.log("✅ Temas cargados:", temasData.length)
       } catch (error) {
-        console.error("Error al cargar datos:", error)
+        console.error("❌ Error al cargar datos:", error)
         toast.error("Error al cargar datos de clientes y temas")
       }
     }
@@ -138,10 +141,11 @@ const CrearUsuario = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
     setLoading(true)
 
     try {
+      console.log("🚀 Iniciando creación de usuario...")
+
       // Validar formulario
       const isValid = await validateForm()
       if (!isValid) {
@@ -150,9 +154,8 @@ const CrearUsuario = () => {
         return
       }
 
-      // Obtener datos del cliente y tema seleccionados
+      // Obtener datos del cliente seleccionado
       const clienteSeleccionado = clientes.find((c) => c.id === formData.clienteId)
-      const temaSeleccionado = temas.find((t) => t.id === formData.temaId)
 
       if (!clienteSeleccionado) {
         toast.error("Cliente seleccionado no encontrado")
@@ -160,43 +163,61 @@ const CrearUsuario = () => {
         return
       }
 
-      // Crear usuario en Firebase Authentication con email generado
-      const userCredential = await createUserWithEmailAndPassword(auth, emailGenerado, formData.password)
-      const uid = userCredential.user.uid
+      console.log("📤 Enviando datos a la API...")
 
-      // Crear documento en Firestore con todos los datos necesarios
-      await setDoc(doc(db, "users", uid), {
-        // Datos básicos del usuario
-        email: emailGenerado,
-        username: formData.username,
-        Nombre: formData.nombre,
-        Apellido: formData.apellido,
-
-        // Rol y estado por defecto
-        rol: "staff",
-        role: "staff", // Mantener ambos para compatibilidad
-        estado: "activo",
-        status: "activo", // Mantener ambos para compatibilidad
-
-        // Datos del cliente asignado
-        clientId: formData.clienteId,
-        equipoNombre: clienteSeleccionado.nombre || clienteSeleccionado.name || clienteSeleccionado.clientName || "",
-        escudoEquipo: clienteSeleccionado.logo || null,
-
-        // Tema asignado
-        themeId: formData.temaId,
-
-        // Metadatos
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        firebaseUid: uid,
-
-        // Datos adicionales necesarios para crear jugadores
-        createdBy: "admin", // Indica que fue creado por un administrador
-        permissions: ["create_players", "edit_players", "view_players"], // Permisos básicos para staff
+      // Llamar a la API para crear el usuario
+      const response = await fetch("/api/admin/create-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          nombre: formData.nombre,
+          apellido: formData.apellido,
+          username: formData.username,
+          password: formData.password,
+          clienteId: formData.clienteId,
+          temaId: formData.temaId,
+          clienteData: clienteSeleccionado,
+        }),
       })
 
+      console.log("📨 Respuesta recibida:", response.status, response.statusText)
+
+      // Obtener el texto de la respuesta
+      const responseText = await response.text()
+      console.log("📄 Contenido de la respuesta:", responseText)
+
+      // Verificar si la respuesta está vacía
+      if (!responseText) {
+        throw new Error("Respuesta vacía del servidor")
+      }
+
+      // Intentar parsear como JSON
+      let result
+      try {
+        result = JSON.parse(responseText)
+        console.log("✅ JSON parseado correctamente:", result)
+      } catch (parseError) {
+        console.error("❌ Error parseando JSON:", parseError)
+        console.error("📄 Respuesta recibida:", responseText.substring(0, 500))
+
+        // Si la respuesta contiene HTML, es probable que sea un error 500
+        if (responseText.includes("<!DOCTYPE") || responseText.includes("<html")) {
+          throw new Error("Error interno del servidor. Revisa la consola del servidor para más detalles.")
+        } else {
+          throw new Error(`Respuesta inválida del servidor: ${responseText.substring(0, 100)}...`)
+        }
+      }
+
+      // Verificar si la respuesta fue exitosa
+      if (!response.ok) {
+        throw new Error(result.error || `Error del servidor: ${response.status}`)
+      }
+
+      // Éxito
       toast.success("Usuario staff creado con éxito!")
+      console.log("🎉 Usuario creado exitosamente:", result)
 
       // Limpiar formulario
       setFormData({
@@ -208,19 +229,11 @@ const CrearUsuario = () => {
         temaId: "",
       })
 
-      // Redireccionar inmediatamente a la gestión de usuarios
+      // Redireccionar a la gestión de usuarios
       router.push("/admin/usuarios")
     } catch (error: any) {
-      console.error("Error al crear usuario:", error)
-
-      let errorMessage = "Error al crear usuario"
-      if (error.code === "auth/email-already-in-use") {
-        errorMessage = "Este email ya está registrado"
-      } else if (error.code === "auth/weak-password") {
-        errorMessage = "La contraseña es muy débil"
-      }
-
-      toast.error(errorMessage)
+      console.error("❌ Error al crear usuario:", error)
+      toast.error(error.message || "Error al crear usuario")
     } finally {
       setLoading(false)
     }
