@@ -1,18 +1,13 @@
 "use client"
 
 import type React from "react"
-
 import { useAuth } from "@/components/auth/AuthProvider"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { collection, query, where, getDocs } from "firebase/firestore"
 import { db } from "@/lib/firebaseConfig"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-
-// Añadir después de las importaciones
 import { cn } from "@/lib/utils"
-
-// Importar los iconos necesarios al inicio del archivo:
 import { ArrowLeft } from 'lucide-react'
 
 // Componente Badge personalizado con colores adicionales
@@ -69,10 +64,9 @@ interface DatosJugador {
   percepcion: RespuestaPercepcion | null
 }
 
-// Move this function definition before the useEffect hooks
 function obtenerFechaHoy() {
   const hoy = new Date()
-  return hoy.toISOString().split("T")[0] // Formato YYYY-MM-DD
+  return hoy.toISOString().split("T")[0]
 }
 
 export default function CargaInternaPage() {
@@ -84,7 +78,7 @@ export default function CargaInternaPage() {
   const [clienteId, setClienteId] = useState<string | null>(null)
   const [fechaSeleccionada, setFechaSeleccionada] = useState<string>(() => {
     const hoy = new Date()
-    return hoy.toISOString().split("T")[0] // Formato YYYY-MM-DD
+    return hoy.toISOString().split("T")[0]
   })
 
   useEffect(() => {
@@ -112,7 +106,6 @@ export default function CargaInternaPage() {
       let userClienteId: string | null = null
 
       try {
-        // Paso 1: Buscar el usuario staff en la colección "staff"
         console.log("🔍 Buscando usuario staff:", user.email)
         const staffRef = collection(db, "staff")
         const staffQuery = query(staffRef, where("email", "==", user.email))
@@ -130,7 +123,6 @@ export default function CargaInternaPage() {
         console.log("⚠️ Error consultando Firestore, usando localStorage:", firestoreError.message)
       }
 
-      // Fallback a localStorage si no se encontró en Firestore
       if (!userClienteId) {
         try {
           const savedStaff = localStorage.getItem("staff")
@@ -155,10 +147,8 @@ export default function CargaInternaPage() {
       setClienteId(userClienteId)
       console.log("🎯 Buscando jugadores con clienteId:", userClienteId)
 
-      // Paso 2: Buscar jugadores en múltiples colecciones
       let jugadores: Jugador[] = []
 
-      // Intentar primero en la colección "jugadores"
       try {
         console.log("🔍 Buscando en colección 'jugadores'...")
         const jugadoresRef = collection(db, "jugadores")
@@ -182,7 +172,6 @@ export default function CargaInternaPage() {
         console.log("⚠️ Error consultando colección 'jugadores':", firestoreError.message)
       }
 
-      // Si no encontró jugadores, intentar en la colección "users"
       if (jugadores.length === 0) {
         try {
           console.log("🔍 Buscando en colección 'users'...")
@@ -209,7 +198,6 @@ export default function CargaInternaPage() {
         }
       }
 
-      // Fallback a localStorage si no se encontraron jugadores en Firestore
       if (jugadores.length === 0) {
         try {
           console.log("🔍 Buscando jugadores en localStorage...")
@@ -232,12 +220,10 @@ export default function CargaInternaPage() {
         }
       }
 
-      // Si aún no hay jugadores, crear una lista basada en las respuestas existentes
       if (jugadores.length === 0) {
         console.log("🔍 No se encontraron jugadores, creando lista desde respuestas...")
         const jugadoresFromResponses = new Set<string>()
 
-        // Buscar jugadores en respuestas de bienestar
         try {
           const bienestarRef = collection(db, "bienestar")
           const bienestarQuery = query(
@@ -255,7 +241,6 @@ export default function CargaInternaPage() {
           console.log("Error buscando en bienestar:", error)
         }
 
-        // Buscar jugadores en respuestas de percepción
         try {
           const percepcionRef = collection(db, "percepcion-esfuerzo")
           const percepcionQuery = query(
@@ -273,7 +258,6 @@ export default function CargaInternaPage() {
           console.log("Error buscando en percepción:", error)
         }
 
-        // Crear jugadores básicos desde las respuestas
         jugadores = Array.from(jugadoresFromResponses).map((jugadorId) => ({
           id: jugadorId,
           nombre: "Jugador",
@@ -290,7 +274,6 @@ export default function CargaInternaPage() {
         return
       }
 
-      // Paso 3: Obtener respuestas de bienestar de la fecha seleccionada
       const respuestasBienestar: { [key: string]: RespuestaBienestar } = {}
 
       try {
@@ -307,17 +290,15 @@ export default function CargaInternaPage() {
           respuestasBienestar[data.jugadorId] = {
             jugadorId: data.jugadorId,
             fecha: data.fecha,
-            respuestas: data.respuestas || data, // Usar data directamente si no hay campo respuestas
+            respuestas: data.respuestas || data,
             clienteId: data.clienteId,
           }
         })
 
         console.log("✅ Respuestas de bienestar encontradas:", Object.keys(respuestasBienestar).length)
-        console.log("📋 Estructura de bienestar:", respuestasBienestar)
       } catch (firestoreError: any) {
         console.log("⚠️ Error consultando bienestar en Firestore, usando localStorage:", firestoreError.message)
 
-        // Fallback a localStorage para bienestar
         try {
           const savedBienestar = localStorage.getItem(`bienestar_${fechaSeleccionada}`)
           if (savedBienestar) {
@@ -329,7 +310,7 @@ export default function CargaInternaPage() {
                   respuestasBienestar[b.jugadorId] = {
                     jugadorId: b.jugadorId,
                     fecha: b.fecha,
-                    respuestas: b.respuestas || b, // Usar b directamente si no hay campo respuestas
+                    respuestas: b.respuestas || b,
                     clienteId: b.clienteId,
                   }
                 })
@@ -344,7 +325,6 @@ export default function CargaInternaPage() {
         }
       }
 
-      // Paso 4: Obtener respuestas de percepción del esfuerzo de la fecha seleccionada
       const respuestasPercepcion: { [key: string]: RespuestaPercepcion } = {}
 
       try {
@@ -358,11 +338,11 @@ export default function CargaInternaPage() {
 
         percepcionSnapshot.docs.forEach((doc) => {
           const data = doc.data()
-          console.log("📋 Datos de percepción para jugador:", data.jugadorId, data) // Debug log
+          console.log("📋 Datos de percepción para jugador:", data.jugadorId, data)
           respuestasPercepcion[data.jugadorId] = {
             jugadorId: data.jugadorId,
             fecha: data.fecha,
-            nivelEsfuerzo: data.nivelEsfuerzo, // Asegurar que se toma directamente del campo
+            nivelEsfuerzo: data.nivelEsfuerzo,
             comentarios: data.comentarios || "",
             clienteId: data.clienteId,
           }
@@ -372,7 +352,6 @@ export default function CargaInternaPage() {
       } catch (firestoreError: any) {
         console.log("⚠️ Error consultando percepción en Firestore, usando localStorage:", firestoreError.message)
 
-        // Fallback a localStorage para percepción
         try {
           const savedPercepcion = localStorage.getItem(`percepcion_${fechaSeleccionada}`)
           if (savedPercepcion) {
@@ -381,11 +360,11 @@ export default function CargaInternaPage() {
               percepcionData
                 .filter((p: any) => p.clienteId === userClienteId)
                 .forEach((p: any) => {
-                  console.log("📋 Datos de percepción localStorage para jugador:", p.jugadorId, p) // Debug log
+                  console.log("📋 Datos de percepción localStorage para jugador:", p.jugadorId, p)
                   respuestasPercepcion[p.jugadorId] = {
                     jugadorId: p.jugadorId,
                     fecha: p.fecha,
-                    nivelEsfuerzo: p.nivelEsfuerzo, // Asegurar que se toma directamente del campo
+                    nivelEsfuerzo: p.nivelEsfuerzo,
                     comentarios: p.comentarios || "",
                     clienteId: p.clienteId,
                   }
@@ -401,7 +380,6 @@ export default function CargaInternaPage() {
         }
       }
 
-      // Paso 5: Combinar todos los datos
       const datosCompletos: DatosJugador[] = jugadores.map((jugador) => ({
         jugador,
         bienestar: respuestasBienestar[jugador.id] || null,
@@ -426,12 +404,10 @@ export default function CargaInternaPage() {
   const obtenerValorBienestar = (bienestar: RespuestaBienestar | null, campo: string) => {
     if (!bienestar) return undefined
 
-    // Intentar obtener del campo respuestas primero
     if (bienestar.respuestas && bienestar.respuestas[campo] !== undefined) {
       return bienestar.respuestas[campo]
     }
 
-    // Si no existe respuestas, intentar obtener directamente del objeto
     if ((bienestar as any)[campo] !== undefined) {
       return (bienestar as any)[campo]
     }
@@ -443,25 +419,22 @@ export default function CargaInternaPage() {
     if (valor === undefined) return "secondary"
 
     if (tipo === "bienestar") {
-      // Nuevos colores para bienestar basados en valores específicos
-      if (valor === 1) return "blue" // Azul para 1
-      if (valor === 2) return "green" // Verde para 2
-      if (valor === 3) return "yellow" // Amarillo para 3
-      if (valor === 4) return "orange" // Naranja para 4
-      if (valor === 5) return "red" // Rojo para 5
-      return "secondary" // Valor por defecto para otros valores
+      if (valor === 1) return "blue"
+      if (valor === 2) return "green"
+      if (valor === 3) return "yellow"
+      if (valor === 4) return "orange"
+      if (valor === 5) return "red"
+      return "secondary"
     } else {
-      // Para RPE (percepción de esfuerzo) - nuevos rangos de colores
-      if (valor >= 1 && valor <= 2) return "blue" // Azul para 1-2
-      if (valor >= 3 && valor <= 4) return "green" // Verde para 3-4
-      if (valor >= 5 && valor <= 6) return "yellow" // Amarillo para 5-6
-      if (valor >= 7 && valor <= 8) return "orange" // Naranja para 7-8
-      if (valor >= 9 && valor <= 10) return "red" // Rojo para 9-10
-      return "secondary" // Valor por defecto para otros valores
+      if (valor >= 1 && valor <= 2) return "blue"
+      if (valor >= 3 && valor <= 4) return "green"
+      if (valor >= 5 && valor <= 6) return "yellow"
+      if (valor >= 7 && valor <= 8) return "orange"
+      if (valor >= 9 && valor <= 10) return "red"
+      return "secondary"
     }
   }
 
-  // Función para obtener las iniciales del usuario
   const obtenerIniciales = (email: string) => {
     const partes = email.split('@')[0].split('.')
     if (partes.length >= 2) {
@@ -512,7 +485,8 @@ export default function CargaInternaPage() {
                   </ul>
                 </div>
               </div>
-            </CardContent>
+            </div>
+          </CardContent>
         </Card>
       </div>
     )
@@ -520,7 +494,6 @@ export default function CargaInternaPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header con el estilo exacto de la imagen */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-6">
@@ -561,7 +534,6 @@ export default function CargaInternaPage() {
         </div>
       </div>
 
-      {/* Contenido principal */}
       <div className="p-6">
         <div className="max-w-7xl mx-auto">
           <Card>
@@ -613,8 +585,6 @@ export default function CargaInternaPage() {
                               <div className="text-sm text-gray-500">{datos.jugador.email}</div>
                             </div>
                           </td>
-
-                          {/* Preguntas de Bienestar */}
                           <td className="p-3 text-center">
                             <CustomBadge
                               variant={obtenerColorBadge(
@@ -665,12 +635,11 @@ export default function CargaInternaPage() {
                               {formatearRespuesta(obtenerValorBienestar(datos.bienestar, "dolorMuscular"))}
                             </CustomBadge>
                           </td>
-                          {/* Tipo de Dolor */}
                           <td className="p-3 text-center max-w-xs">
                             {obtenerValorBienestar(datos.bienestar, "tipoDolorMuscular") ? (
                               <div
                                 className="text-sm text-gray-600 truncate"
-                                title={obtenerValorBienestar(datos.bienestar, "tipoDolorMuscular")}
+                                title={String(obtenerValorBienestar(datos.bienestar, "tipoDolorMuscular"))}
                               >
                                 {obtenerValorBienestar(datos.bienestar, "tipoDolorMuscular")}
                               </div>
@@ -682,7 +651,7 @@ export default function CargaInternaPage() {
                             {obtenerValorBienestar(datos.bienestar, "zonaDolorMuscular") ? (
                               <div
                                 className="text-sm text-gray-600 truncate"
-                                title={obtenerValorBienestar(datos.bienestar, "zonaDolorMuscular")}
+                                title={String(obtenerValorBienestar(datos.bienestar, "zonaDolorMuscular"))}
                               >
                                 {obtenerValorBienestar(datos.bienestar, "zonaDolorMuscular")}
                               </div>
@@ -690,8 +659,6 @@ export default function CargaInternaPage() {
                               <span className="text-gray-400">-</span>
                             )}
                           </td>
-
-                          {/* Datos de Percepción del Esfuerzo */}
                           <td className="p-3 text-center">
                             <CustomBadge variant={obtenerColorBadge(datos.percepcion?.nivelEsfuerzo, "percepcion")}>
                               {datos.percepcion?.nivelEsfuerzo ? datos.percepcion.nivelEsfuerzo : "-"}
