@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useEffect } from "react"
 import UnderDevelopment from "@/components/UnderDevelopment"
 
-export default function TemasPage() {
+export default function MedicosPage() {
   const { user, loading } = useAuth()
   const router = useRouter()
 
@@ -29,9 +29,9 @@ export default function TemasPage() {
 
   return (
     <UnderDevelopment
-      title="Gestión de Temas"
-      description="El módulo de personalización de temas está en desarrollo. Aquí podrás crear y editar temas personalizados, configurar colores, fuentes y estilos para diferentes clientes."
-      backUrl="/admin"
+      title="Servicios Médicos"
+      description="El módulo de servicios médicos está en desarrollo. Aquí podrás gestionar el historial médico, registrar lesiones, hacer seguimiento de recuperaciones y programar revisiones médicas."
+      backUrl="/staff"
     />
   )
 }

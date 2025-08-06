@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useEffect } from "react"
 import UnderDevelopment from "@/components/UnderDevelopment"
 
-export default function TemasPage() {
+export default function EvaluacionesPage() {
   const { user, loading } = useAuth()
   const router = useRouter()
 
@@ -29,9 +29,9 @@ export default function TemasPage() {
 
   return (
     <UnderDevelopment
-      title="Gestión de Temas"
-      description="El módulo de personalización de temas está en desarrollo. Aquí podrás crear y editar temas personalizados, configurar colores, fuentes y estilos para diferentes clientes."
-      backUrl="/admin"
+      title="Evaluaciones"
+      description="El módulo de evaluaciones está en desarrollo. Aquí podrás realizar evaluaciones técnicas, físicas y tácticas de los jugadores, y generar reportes de progreso."
+      backUrl="/staff"
     />
   )
 }

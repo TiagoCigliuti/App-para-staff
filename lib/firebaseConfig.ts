@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app"
-import { getFirestore } from "firebase/firestore"
 import { getAuth } from "firebase/auth"
+import { getFirestore } from "firebase/firestore"
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -12,9 +12,7 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 }
 
-// Inicializamos Firebase solo una vez
 const app = initializeApp(firebaseConfig)
-
-// Exportamos los servicios que vamos a usar
-export const db = getFirestore(app)
 export const auth = getAuth(app)
+export const db = getFirestore(app)
+export default app
