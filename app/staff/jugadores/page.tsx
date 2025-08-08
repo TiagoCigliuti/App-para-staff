@@ -1127,7 +1127,7 @@ export default function JugadoresPage() {
                   setShowSugerenciasPrincipal(false)
                   setShowSugerenciasSecundaria(false)
                 }}
-                disabled={!firestoreConnected && !firestoreWriteEnabled}
+                disabled={!firestoreConnected || !firestoreWriteEnabled}
               >
                 <Plus className="w-4 h-4 mr-2" />
                 Nuevo Jugador

@@ -1,3 +1,7 @@
+import { initializeApp, getApps } from "firebase/app"
+import { getAuth, signOut } from "firebase/auth"
+// Asegurate de exportar firebaseConfig desde ./firebaseConfig
+import { firebaseConfig } from "./firebaseConfig"
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from "firebase/auth"
 import { collection, query, where, getDocs, doc, setDoc, deleteDoc, addDoc, limit } from "firebase/firestore"
 import { auth, db } from "./firebaseConfig"
@@ -6,6 +10,11 @@ interface LoginResult {
   success: boolean
   userData?: any
   error?: string
+}
+
+function getSecondaryApp() {
+  const existing = getApps().find((a) => a.name === "Secondary")
+  return existing ?? initializeApp(firebaseConfig, "Secondary")
 }
 
 // Función para verificar conexión a Firestore con permisos mínimos
@@ -317,123 +326,66 @@ export const loginWithEmailOrUsername = async (usuario: string, password: string
 export const createJugadorWithoutLogin = async (jugadorData: any, password: string) => {
   try {
     console.log("🔄 Creando jugador sin afectar sesión actual...")
-    
-    // Guardar el usuario actual antes de crear el nuevo
     const currentUser = auth.currentUser
-    if (!currentUser) {
-      throw new Error("No hay usuario autenticado")
+    if (!currentUser) throw new Error("No hay usuario autenticado")
+    if (!jugadorData?.email || !password || password.length < 6) {
+      throw new Error("Email o contraseña inválidos")
     }
-
-    console.log("💾 Usuario actual guardado:", currentUser.email)
-
-    // Crear el jugador en Firestore primero (sin crear usuario en Auth)
-    const jugadoresRef = collection(db, "jugadores")
-    const jugadorDocData = {
+    const secondary = getSecondaryApp()
+    const secondaryAuth = getAuth(secondary)
+    const cred = await createUserWithEmailAndPassword(secondaryAuth, jugadorData.email, password)
+    await updateProfile(cred.user, {
+      displayName:
+        jugadorData.nombreVisualizacion ||
+        `${jugadorData.nombre || ""} ${jugadorData.apellido || ""}`.trim(),
+    })
+    const jugadorDoc = {
       ...jugadorData,
-      // Marcar que necesita activación
-      needsActivation: true,
-      tempPassword: password, // Guardar temporalmente la contraseña (en producción usar hash)
+      firebaseUid: cred.user.uid,
+      needsActivation: false,
       fechaCreacion: new Date(),
+      creadoPor: currentUser.email || "unknown",
     }
-
-    const docRef = await addDoc(jugadoresRef, jugadorDocData)
-    console.log("✅ Jugador guardado en Firestore con ID:", docRef.id)
-
-    // También crear en la colección "users" para el sistema de autenticación
-    const userData = {
-      nombre: jugadorData.nombre,
-      apellido: jugadorData.apellido,
-      firstName: jugadorData.nombre,
-      lastName: jugadorData.apellido,
-      username: jugadorData.username,
+    const jugadorRef = await addDoc(collection(db, "jugadores"), jugadorDoc)
+    await addDoc(collection(db, "users"), {
       email: jugadorData.email,
+      username: jugadorData.username,
+      rol: "jugador",
+      estado: jugadorData.estado ?? "activo",
       clienteId: jugadorData.clienteId,
       clienteNombre: jugadorData.clienteNombre,
-      rol: "jugador",
-      estado: jugadorData.estado,
-      fechaCreacion: new Date(),
-      creadoPor: currentUser.email,
-      needsActivation: true,
-      tempPassword: password,
-    }
-
-    const usersRef = collection(db, "users")
-    await addDoc(usersRef, userData)
-    console.log("✅ Usuario guardado en colección 'users'")
-
+      firebaseUid: cred.user.uid,
+      createdAt: new Date(),
+      firstName: jugadorData.nombre,
+      lastName: jugadorData.apellido,
+    })
+    await signOut(secondaryAuth)
+    console.log("✅ Jugador creado y usuario de Auth generado:", jugadorRef.id)
     return {
       success: true,
-      jugadorId: docRef.id,
-      message: "Jugador creado correctamente. Se activará automáticamente en su primer login."
+      jugadorId: jugadorRef.id,
+      message: "Jugador creado y usuario de Auth generado",
     }
-
   } catch (error: any) {
-    console.error("❌ Error creando jugador:", error)
+    console.error("❌ Error creando jugador (secondary):", error?.code, error?.message)
+    try {
+      const secondary = getSecondaryApp()
+      const secondaryAuth = getAuth(secondary)
+      await signOut(secondaryAuth)
+    } catch {}
     throw error
   }
 }
 
 // Función para activar jugador en su primer login
 export const activateJugadorOnFirstLogin = async (email: string, password: string) => {
+  // Activación omitida: el jugador ya se crea "activo".
+  // Simplemente iniciamos sesión con sus credenciales.
   try {
-    console.log("🔄 Activando jugador en primer login:", email)
-
-    // Buscar el usuario en la colección users
-    const usersRef = collection(db, "users")
-    const q = query(usersRef, where("email", "==", email), where("needsActivation", "==", true))
-    const querySnapshot = await getDocs(q)
-
-    if (querySnapshot.empty) {
-      throw new Error("Usuario no encontrado o ya activado")
-    }
-
-    const userDoc = querySnapshot.docs[0]
-    const userData = userDoc.data()
-
-    // Verificar contraseña temporal
-    if (userData.tempPassword !== password) {
-      throw new Error("Contraseña incorrecta")
-    }
-
-    // Crear usuario en Firebase Auth
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password)
-    const firebaseUser = userCredential.user
-
-    // Actualizar perfil
-    await updateProfile(firebaseUser, {
-      displayName: `${userData.firstName || userData.nombre || ""} ${userData.lastName || userData.apellido || ""}`.trim(),
-    })
-
-    // Actualizar documento en users (remover needsActivation y tempPassword)
-    await setDoc(userDoc.ref, {
-      ...userData,
-      firebaseUid: firebaseUser.uid,
-      needsActivation: false,
-      tempPassword: null,
-      fechaActivacion: new Date(),
-    })
-
-    // Actualizar documento en jugadores también
-    const jugadoresRef = collection(db, "jugadores")
-    const jugadorQuery = query(jugadoresRef, where("email", "==", email))
-    const jugadorSnapshot = await getDocs(jugadorQuery)
-
-    if (!jugadorSnapshot.empty) {
-      const jugadorDoc = jugadorSnapshot.docs[0]
-      await setDoc(jugadorDoc.ref, {
-        ...jugadorDoc.data(),
-        firebaseUid: firebaseUser.uid,
-        needsActivation: false,
-        tempPassword: null,
-        fechaActivacion: new Date(),
-      })
-    }
-
-    console.log("✅ Jugador activado exitosamente")
-    return { success: true, user: firebaseUser }
-
+    const cred = await signInWithEmailAndPassword(auth, email, password)
+    return { success: true, user: cred.user }
   } catch (error: any) {
-    console.error("❌ Error activando jugador:", error)
+    console.error("❌ Error al iniciar sesión del jugador:", error?.message || error)
     throw error
   }
 }
