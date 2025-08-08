@@ -1,7 +1,5 @@
 "use client"
 
-import type React from "react"
-
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -9,8 +7,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { loginWithEmailOrUsername } from "@/lib/firebase"
-import { Eye, EyeOff, LogIn } from "lucide-react"
+import { Eye, EyeOff, AlertCircle } from 'lucide-react'
+import { loginWithEmailOrUsername, activateJugadorOnFirstLogin } from "@/lib/firebase"
 
 export default function LoginForm() {
   const [usuario, setUsuario] = useState("")
@@ -20,207 +18,144 @@ export default function LoginForm() {
   const [error, setError] = useState("")
   const router = useRouter()
 
-  const determineUserRedirection = async (userEmail: string) => {
-    try {
-      console.log("🔄 Determinando redirección para:", userEmail)
-
-      // Verificar si es admin por email (administradores principales)
-      if (userEmail.includes("@staffpro.com") && userEmail.includes("admin")) {
-        console.log("✅ Usuario admin detectado por email")
-        return "/admin"
-      }
-
-      // Intentar consultar Firestore solo si tenemos permisos
-      try {
-        // Importar dinámicamente para evitar errores de SSR
-        const { collection, query, where, getDocs } = await import("firebase/firestore")
-        const { db } = await import("@/lib/firebaseConfig")
-
-        // Buscar usuario en la colección staff
-        console.log("🔍 Buscando usuario en colección staff...")
-        const staffRef = collection(db, "staff")
-        const staffQuery = query(staffRef, where("email", "==", userEmail))
-        const staffSnapshot = await getDocs(staffQuery)
-
-        if (!staffSnapshot.empty) {
-          const staffData = staffSnapshot.docs[0].data()
-          console.log("✅ Usuario staff encontrado:", staffData)
-
-          if (staffData.rol === "staff" && staffData.estado === "activo") {
-            console.log("✅ Redirigiendo a panel de staff")
-            return "/staff"
-          }
-        }
-
-        // Buscar en colección users
-        console.log("🔍 Buscando en colección users...")
-        const usersRef = collection(db, "users")
-        const usersQuery = query(usersRef, where("email", "==", userEmail))
-        const usersSnapshot = await getDocs(usersQuery)
-
-        if (!usersSnapshot.empty) {
-          const userData = usersSnapshot.docs[0].data()
-          console.log("✅ Usuario encontrado en users:", userData)
-
-          // Redireccionar según el rol
-          switch (userData.rol) {
-            case "admin":
-              return "/admin"
-            case "staff":
-              return "/staff"
-            case "jugador":
-              return "/jugador"
-            default:
-              console.log("⚠️ Rol no reconocido:", userData.rol)
-              break
-          }
-        }
-
-        console.log("⚠️ Usuario no encontrado en BD, usando lógica de email")
-      } catch (firestoreError: any) {
-        console.log("⚠️ Error consultando Firestore (usando fallback):", firestoreError.message)
-
-        // Si hay error de permisos, intentar usar localStorage como backup
-        try {
-          const savedUsers = localStorage.getItem("usuarios")
-          if (savedUsers) {
-            const users = JSON.parse(savedUsers)
-            const foundUser = users.find((u: any) => u.email === userEmail)
-            if (foundUser && foundUser.rol === "staff" && foundUser.estado === "activo") {
-              console.log("✅ Usuario staff encontrado en localStorage")
-              return "/staff"
-            }
-          }
-        } catch (localStorageError) {
-          console.log("⚠️ Error consultando localStorage:", localStorageError)
-        }
-      }
-
-      // Fallback: usar lógica de email
-      console.log("🔄 Usando lógica de email como fallback")
-      if (userEmail.includes("@staffpro.com")) {
-        return "/admin"
-      } else if (userEmail.includes("@staff")) {
-        return "/staff"
-      } else if (userEmail.includes("@jugador") || userEmail.includes("@player")) {
-        return "/jugador"
-      } else {
-        return "/dashboard"
-      }
-    } catch (error: any) {
-      console.error("❌ Error determinando redirección:", error)
-
-      // Fallback final en caso de cualquier error
-      if (userEmail.includes("@staffpro.com")) {
-        return "/admin"
-      } else if (userEmail.includes("@staff")) {
-        return "/staff"
-      } else {
-        return "/dashboard"
-      }
-    }
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError("")
 
     try {
+      console.log("🔐 Iniciando proceso de login...")
+
+      // Detectar si es email o username
+      const esEmail = usuario.includes("@")
+      
+      if (esEmail && usuario.includes("@jugador.com")) {
+        // Es un jugador que podría necesitar activación
+        console.log("🎯 Detectado como jugador, verificando si necesita activación...")
+        
+        try {
+          // Intentar activar si es necesario
+          const activationResult = await activateJugadorOnFirstLogin(usuario, password)
+          
+          if (activationResult.success) {
+            console.log("✅ Jugador activado exitosamente en primer login")
+            
+            // Redirigir según el rol
+            router.push("/jugador")
+            return
+          }
+        } catch (activationError: any) {
+          console.log("⚠️ Error en activación o jugador ya activado, intentando login normal...")
+          
+          // Si falla la activación, continuar con login normal
+        }
+      }
+
+      // Login normal
       const result = await loginWithEmailOrUsername(usuario, password)
 
       if (result.success && result.userData) {
-        console.log("✅ Login exitoso:", result.userData)
+        console.log("✅ Login exitoso")
 
-        // Determinar redirección basada en la base de datos
-        const redirectPath = await determineUserRedirection(result.userData.user.email)
-        console.log("🎯 Redirigiendo a:", redirectPath)
-
-        router.push(redirectPath)
+        // Redirigir según el rol del usuario
+        if (result.userData.isAdmin) {
+          router.push("/admin")
+        } else if (result.userData.isStaff) {
+          router.push("/staff")
+        } else if (result.userData.isJugador) {
+          router.push("/jugador")
+        } else {
+          // Fallback: redirigir al dashboard general
+          router.push("/dashboard")
+        }
       } else {
-        setError(result.error || "Error desconocido al iniciar sesión")
+        setError(result.error || "Error de autenticación")
       }
     } catch (error: any) {
-      console.error("Error en login:", error)
-      setError("Error interno del servidor")
+      console.error("❌ Error en login:", error)
+      setError("Error de conexión. Inténtalo de nuevo.")
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl font-bold text-center">Iniciar Sesión</CardTitle>
-            <CardDescription className="text-center">Ingresa tus credenciales para acceder al sistema</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="usuario">Usuario o Email</Label>
-                <Input
-                  id="usuario"
-                  type="text"
-                  placeholder="Usuario o email"
-                  value={usuario}
-                  onChange={(e) => setUsuario(e.target.value)}
-                  required
-                  disabled={loading}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="password">Contraseña</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Ingresa tu contraseña"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    disabled={loading}
-                  />
-                  <button
-                    type="button"
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                    onClick={() => setShowPassword(!showPassword)}
-                    disabled={loading}
-                  >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4 text-gray-400" />
-                    ) : (
-                      <Eye className="h-4 w-4 text-gray-400" />
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {error && (
-                <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? (
-                  <div className="flex items-center">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    Iniciando sesión...
-                  </div>
+    <Card className="w-full max-w-md mx-auto">
+      <CardHeader className="space-y-1">
+        <CardTitle className="text-2xl font-bold text-center">Iniciar Sesión</CardTitle>
+        <CardDescription className="text-center">
+          Ingresa tus credenciales para acceder al sistema
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="usuario">Usuario o Email</Label>
+            <Input
+              id="usuario"
+              type="text"
+              value={usuario}
+              onChange={(e) => setUsuario(e.target.value)}
+              placeholder="usuario o email@ejemplo.com"
+              required
+              disabled={loading}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">Contraseña</Label>
+            <div className="relative">
+              <Input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Tu contraseña"
+                required
+                disabled={loading}
+              />
+              <button
+                type="button"
+                className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                onClick={() => setShowPassword(!showPassword)}
+                disabled={loading}
+              >
+                {showPassword ? (
+                  <EyeOff className="h-4 w-4 text-gray-400" />
                 ) : (
-                  <div className="flex items-center">
-                    <LogIn className="w-4 h-4 mr-2" />
-                    Iniciar Sesión
-                  </div>
+                  <Eye className="h-4 w-4 text-gray-400" />
                 )}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+              </button>
+            </div>
+          </div>
+
+          {error && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? (
+              <div className="flex items-center">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                Iniciando sesión...
+              </div>
+            ) : (
+              "Iniciar Sesión"
+            )}
+          </Button>
+        </form>
+
+        <div className="mt-6 text-center text-sm text-gray-600">
+          <p>Tipos de usuario:</p>
+          <div className="mt-2 space-y-1">
+            <p><strong>Admin:</strong> admin@staffpro.com</p>
+            <p><strong>Staff:</strong> usuario@staff.com</p>
+            <p><strong>Jugador:</strong> usuario@jugador.com</p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   )
 }

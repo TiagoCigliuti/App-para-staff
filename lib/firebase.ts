@@ -312,3 +312,128 @@ export const loginWithEmailOrUsername = async (usuario: string, password: string
     return { success: false, error: "Error interno del servidor" }
   }
 }
+
+// Nueva función para crear jugadores sin afectar la sesión actual
+export const createJugadorWithoutLogin = async (jugadorData: any, password: string) => {
+  try {
+    console.log("🔄 Creando jugador sin afectar sesión actual...")
+    
+    // Guardar el usuario actual antes de crear el nuevo
+    const currentUser = auth.currentUser
+    if (!currentUser) {
+      throw new Error("No hay usuario autenticado")
+    }
+
+    console.log("💾 Usuario actual guardado:", currentUser.email)
+
+    // Crear el jugador en Firestore primero (sin crear usuario en Auth)
+    const jugadoresRef = collection(db, "jugadores")
+    const jugadorDocData = {
+      ...jugadorData,
+      // Marcar que necesita activación
+      needsActivation: true,
+      tempPassword: password, // Guardar temporalmente la contraseña (en producción usar hash)
+      fechaCreacion: new Date(),
+    }
+
+    const docRef = await addDoc(jugadoresRef, jugadorDocData)
+    console.log("✅ Jugador guardado en Firestore con ID:", docRef.id)
+
+    // También crear en la colección "users" para el sistema de autenticación
+    const userData = {
+      nombre: jugadorData.nombre,
+      apellido: jugadorData.apellido,
+      firstName: jugadorData.nombre,
+      lastName: jugadorData.apellido,
+      username: jugadorData.username,
+      email: jugadorData.email,
+      clienteId: jugadorData.clienteId,
+      clienteNombre: jugadorData.clienteNombre,
+      rol: "jugador",
+      estado: jugadorData.estado,
+      fechaCreacion: new Date(),
+      creadoPor: currentUser.email,
+      needsActivation: true,
+      tempPassword: password,
+    }
+
+    const usersRef = collection(db, "users")
+    await addDoc(usersRef, userData)
+    console.log("✅ Usuario guardado en colección 'users'")
+
+    return {
+      success: true,
+      jugadorId: docRef.id,
+      message: "Jugador creado correctamente. Se activará automáticamente en su primer login."
+    }
+
+  } catch (error: any) {
+    console.error("❌ Error creando jugador:", error)
+    throw error
+  }
+}
+
+// Función para activar jugador en su primer login
+export const activateJugadorOnFirstLogin = async (email: string, password: string) => {
+  try {
+    console.log("🔄 Activando jugador en primer login:", email)
+
+    // Buscar el usuario en la colección users
+    const usersRef = collection(db, "users")
+    const q = query(usersRef, where("email", "==", email), where("needsActivation", "==", true))
+    const querySnapshot = await getDocs(q)
+
+    if (querySnapshot.empty) {
+      throw new Error("Usuario no encontrado o ya activado")
+    }
+
+    const userDoc = querySnapshot.docs[0]
+    const userData = userDoc.data()
+
+    // Verificar contraseña temporal
+    if (userData.tempPassword !== password) {
+      throw new Error("Contraseña incorrecta")
+    }
+
+    // Crear usuario en Firebase Auth
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password)
+    const firebaseUser = userCredential.user
+
+    // Actualizar perfil
+    await updateProfile(firebaseUser, {
+      displayName: `${userData.firstName || userData.nombre || ""} ${userData.lastName || userData.apellido || ""}`.trim(),
+    })
+
+    // Actualizar documento en users (remover needsActivation y tempPassword)
+    await setDoc(userDoc.ref, {
+      ...userData,
+      firebaseUid: firebaseUser.uid,
+      needsActivation: false,
+      tempPassword: null,
+      fechaActivacion: new Date(),
+    })
+
+    // Actualizar documento en jugadores también
+    const jugadoresRef = collection(db, "jugadores")
+    const jugadorQuery = query(jugadoresRef, where("email", "==", email))
+    const jugadorSnapshot = await getDocs(jugadorQuery)
+
+    if (!jugadorSnapshot.empty) {
+      const jugadorDoc = jugadorSnapshot.docs[0]
+      await setDoc(jugadorDoc.ref, {
+        ...jugadorDoc.data(),
+        firebaseUid: firebaseUser.uid,
+        needsActivation: false,
+        tempPassword: null,
+        fechaActivacion: new Date(),
+      })
+    }
+
+    console.log("✅ Jugador activado exitosamente")
+    return { success: true, user: firebaseUser }
+
+  } catch (error: any) {
+    console.error("❌ Error activando jugador:", error)
+    throw error
+  }
+}

@@ -6,7 +6,7 @@ import type React from "react"
 import { useAuth } from "@/components/auth/AuthProvider"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
-import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth"
+import { updateProfile } from "firebase/auth"
 import {
   collection,
   addDoc,
@@ -20,7 +20,7 @@ import {
   getDoc,
 } from "firebase/firestore"
 import { auth, db } from "@/lib/firebaseConfig"
-import { testFirestoreConnection, testFirestoreWrite } from "@/lib/firebase"
+import { testFirestoreConnection, testFirestoreWrite, createJugadorWithoutLogin } from "@/lib/firebase"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -35,23 +35,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  ArrowLeft,
-  Plus,
-  MoreVertical,
-  Edit,
-  Trash2,
-  User,
-  LogOut,
-  Eye,
-  EyeOff,
-  UserPlus,
-  AlertCircle,
-  Wifi,
-  WifiOff,
-  Upload,
-  X,
-} from "lucide-react"
+import { ArrowLeft, Plus, MoreVertical, Edit, Trash2, User, LogOut, Eye, EyeOff, UserPlus, AlertCircle, Wifi, WifiOff, Upload, X } from 'lucide-react'
 import { signOut } from "firebase/auth"
 
 interface StaffUser {
@@ -91,7 +75,8 @@ interface Jugador {
   fechaCreacion: Date
   creadoPor: string
   firebaseUid?: string
-  foto?: string // Nueva propiedad para la foto
+  foto?: string
+  needsActivation?: boolean
 }
 
 interface Posicion {
@@ -129,7 +114,7 @@ export default function JugadoresPage() {
     username: "",
     password: "",
     estado: "activo" as "activo" | "inactivo",
-    foto: "", // Nueva propiedad para la foto
+    foto: "",
   })
 
   // Agregar después de los estados existentes:
@@ -714,65 +699,55 @@ export default function JugadoresPage() {
         return
       }
 
-      // Crear nueva posición si no existe
-      let posicionPrincipalId = formData.posicionPrincipal
-      let posicionSecundariaId = formData.posicionSecundaria
+      // CAMBIO IMPORTANTE: Usar directamente el texto de las posiciones
+      const posicionPrincipalTexto = formData.posicionPrincipal.trim()
+      const posicionSecundariaTexto = formData.posicionSecundaria.trim() || null
 
-      // Verificar si la posición principal ya existe
-      const posicionPrincipalExistente = posiciones.find(
-        (p) => p.nombre.toLowerCase() === formData.posicionPrincipal.toLowerCase(),
-      )
-      if (posicionPrincipalExistente) {
-        posicionPrincipalId = posicionPrincipalExistente.id
-      } else if (firestoreConnected && firestoreWriteEnabled) {
-        // Crear nueva posición principal solo si Firestore está conectado y tiene permisos de escritura
+      // Opcional: Crear las posiciones en la colección de posiciones para futuras sugerencias
+      // pero NO usar sus IDs en el jugador
+      if (firestoreConnected && firestoreWriteEnabled) {
         try {
-          const posicionesRef = collection(db, "posiciones")
-          const nuevaPosicionData = {
-            nombre: formData.posicionPrincipal,
-            clienteId: cliente?.id || "",
-            fechaCreacion: new Date(),
-            creadoPor: user?.email || "unknown",
-          }
-          const posicionDoc = await addDoc(posicionesRef, nuevaPosicionData)
-          posicionPrincipalId = posicionDoc.id
-          console.log("✅ Nueva posición principal creada:", posicionDoc.id)
-
-          // Recargar posiciones
-          await loadPosiciones()
-        } catch (error) {
-          console.log("⚠️ Error creando posición principal, usando nombre directamente:", error)
-          posicionPrincipalId = formData.posicionPrincipal
-        }
-      }
-
-      // Manejar posición secundaria si existe
-      if (formData.posicionSecundaria) {
-        const posicionSecundariaExistente = posiciones.find(
-          (p) => p.nombre.toLowerCase() === formData.posicionSecundaria.toLowerCase(),
-        )
-        if (posicionSecundariaExistente) {
-          posicionSecundariaId = posicionSecundariaExistente.id
-        } else if (firestoreConnected && firestoreWriteEnabled) {
-          // Crear nueva posición secundaria solo si Firestore está conectado y tiene permisos de escritura
-          try {
+          // Verificar si la posición principal ya existe en la colección posiciones
+          const posicionPrincipalExistente = posiciones.find(
+            (p) => p.nombre.toLowerCase() === posicionPrincipalTexto.toLowerCase(),
+          )
+          
+          if (!posicionPrincipalExistente) {
+            // Crear nueva posición principal para futuras sugerencias
             const posicionesRef = collection(db, "posiciones")
             const nuevaPosicionData = {
-              nombre: formData.posicionSecundaria,
+              nombre: posicionPrincipalTexto,
               clienteId: cliente?.id || "",
               fechaCreacion: new Date(),
               creadoPor: user?.email || "unknown",
             }
-            const posicionDoc = await addDoc(posicionesRef, nuevaPosicionData)
-            posicionSecundariaId = posicionDoc.id
-            console.log("✅ Nueva posición secundaria creada:", posicionDoc.id)
-
-            // Recargar posiciones
-            await loadPosiciones()
-          } catch (error) {
-            console.log("⚠️ Error creando posición secundaria, usando nombre directamente:", error)
-            posicionSecundariaId = formData.posicionSecundaria
+            await addDoc(posicionesRef, nuevaPosicionData)
+            console.log("✅ Nueva posición principal agregada a la colección posiciones:", posicionPrincipalTexto)
           }
+
+          // Hacer lo mismo para la posición secundaria si existe
+          if (posicionSecundariaTexto) {
+            const posicionSecundariaExistente = posiciones.find(
+              (p) => p.nombre.toLowerCase() === posicionSecundariaTexto.toLowerCase(),
+            )
+            
+            if (!posicionSecundariaExistente) {
+              const posicionesRef = collection(db, "posiciones")
+              const nuevaPosicionData = {
+                nombre: posicionSecundariaTexto,
+                clienteId: cliente?.id || "",
+                fechaCreacion: new Date(),
+                creadoPor: user?.email || "unknown",
+              }
+              await addDoc(posicionesRef, nuevaPosicionData)
+              console.log("✅ Nueva posición secundaria agregada a la colección posiciones:", posicionSecundariaTexto)
+            }
+          }
+
+          // Recargar posiciones para futuras sugerencias
+          await loadPosiciones()
+        } catch (error) {
+          console.log("⚠️ Error creando posiciones en la colección, continuando con el jugador:", error)
         }
       }
 
@@ -793,15 +768,15 @@ export default function JugadoresPage() {
             apellido: formData.apellido,
             nombreVisualizacion: formData.nombreVisualizacion,
             fechaNacimiento: formData.fechaNacimiento,
-            posicionPrincipal: posicionPrincipalId,
-            posicionSecundaria: posicionSecundariaId || null,
+            posicionPrincipal: posicionPrincipalTexto, // Usar el texto directamente
+            posicionSecundaria: posicionSecundariaTexto, // Usar el texto directamente
             altura: formData.altura ? Number.parseFloat(formData.altura) : null,
             peso: formData.peso ? Number.parseFloat(formData.peso) : null,
             username: formData.username,
             estado: formData.estado,
             fechaActualizacion: new Date(),
             actualizadoPor: user?.email || "unknown",
-            foto: formData.foto || null, // Incluir la foto
+            foto: formData.foto || null,
           }
 
           await updateDoc(jugadorRef, updateData)
@@ -828,43 +803,14 @@ export default function JugadoresPage() {
           return
         }
 
-        // Crear usuario en Firebase Authentication primero
-        let firebaseUid = ""
-        try {
-          console.log("🔄 Creando usuario en Firebase Authentication...")
-          const userCredential = await createUserWithEmailAndPassword(auth, email, formData.password)
-          const firebaseUser = userCredential.user
-          firebaseUid = firebaseUser.uid
-
-          // Actualizar el perfil del usuario
-          await updateProfile(firebaseUser, {
-            displayName: formData.nombreVisualizacion,
-          })
-
-          console.log("✅ Usuario creado en Firebase Auth con UID:", firebaseUid)
-        } catch (authError: any) {
-          console.error("❌ Error creando usuario en Firebase Auth:", authError)
-
-          let errorMessage = "Error al crear el usuario en el sistema de autenticación"
-          if (authError.code === "auth/email-already-in-use") {
-            errorMessage = "Ya existe un usuario con este email en el sistema"
-          } else if (authError.code === "auth/weak-password") {
-            errorMessage = "La contraseña debe tener al menos 6 caracteres"
-          }
-
-          setFormError(errorMessage)
-          setFormLoading(false)
-          return
-        }
-
         // Preparar datos del jugador
         const jugadorData = {
           nombre: formData.nombre,
           apellido: formData.apellido,
           nombreVisualizacion: formData.nombreVisualizacion,
           fechaNacimiento: formData.fechaNacimiento,
-          posicionPrincipal: posicionPrincipalId,
-          posicionSecundaria: posicionSecundariaId || null,
+          posicionPrincipal: posicionPrincipalTexto, // Usar el texto directamente
+          posicionSecundaria: posicionSecundariaTexto, // Usar el texto directamente
           altura: formData.altura ? Number.parseFloat(formData.altura) : null,
           peso: formData.peso ? Number.parseFloat(formData.peso) : null,
           username: formData.username,
@@ -873,61 +819,29 @@ export default function JugadoresPage() {
           clienteNombre: cliente?.nombre || "",
           rol: "jugador",
           estado: formData.estado,
-          fechaCreacion: new Date(),
           creadoPor: user?.email || "unknown",
-          firebaseUid: firebaseUid,
-          foto: formData.foto || null, // Incluir la foto
+          foto: formData.foto || null,
         }
 
-        // Intentar guardar en Firestore (PRIORIDAD)
+        // Usar la nueva función que no afecta la sesión actual
         try {
-          console.log("🔄 Guardando jugador en colección 'jugadores'...")
-          console.log("📊 Datos a guardar:", jugadorData)
-
-          // Usar addDoc para que Firestore genere el ID automáticamente
-          const jugadoresRef = collection(db, "jugadores")
-          const docRef = await addDoc(jugadoresRef, jugadorData)
-
-          console.log("✅ Jugador guardado en Firestore con ID:", docRef.id)
-
-          // También crear en la colección "users" para el sistema de autenticación
-          try {
-            console.log("🔄 Guardando jugador en colección 'users'...")
-
-            const userData = {
-              nombre: formData.nombre,
-              apellido: formData.apellido,
-              firstName: formData.nombre,
-              lastName: formData.apellido,
-              username: formData.username,
-              email: email,
-              clienteId: cliente?.id || "",
-              clienteNombre: cliente?.nombre || "",
-              rol: "jugador",
-              estado: formData.estado,
-              fechaCreacion: new Date(),
-              creadoPor: user?.email || "unknown",
-              firebaseUid: firebaseUid,
-            }
-
-            const usersRef = collection(db, "users")
-            await addDoc(usersRef, userData)
-
-            console.log("✅ Usuario guardado en colección 'users'")
-          } catch (userError) {
-            console.log("⚠️ Error guardando en colección 'users':", userError)
-            // No es crítico, el jugador ya está creado
+          console.log("🔄 Creando jugador sin afectar sesión actual...")
+          console.log("📊 Datos del jugador a crear:", jugadorData)
+          
+          const result = await createJugadorWithoutLogin(jugadorData, formData.password)
+          
+          if (result.success) {
+            console.log("✅ Jugador creado exitosamente:", result.jugadorId)
+            setFormSuccess(result.message || "Jugador creado correctamente")
+            
+            // Recargar jugadores
+            await loadJugadores()
+          } else {
+            throw new Error("Error creando jugador")
           }
-
-          setFormSuccess("Jugador creado correctamente y guardado en Firebase")
-
-          // Recargar jugadores desde Firestore
-          await loadJugadores()
-        } catch (firestoreError: any) {
-          console.error("❌ Error guardando jugador en Firestore:", firestoreError)
-
-          // Solo usar localStorage si Firestore falla completamente
-          setFormError("Error al guardar en la base de datos. Verifica tu conexión e inténtalo de nuevo.")
+        } catch (createError: any) {
+          console.error("❌ Error creando jugador:", createError)
+          setFormError("Error al crear el jugador: " + (createError.message || "Error desconocido"))
           setFormLoading(false)
           return
         }
@@ -946,7 +860,7 @@ export default function JugadoresPage() {
         username: "",
         password: "",
         estado: "activo",
-        foto: "", // Limpiar la foto
+        foto: "",
       })
       setShowCreateDialog(false)
       setEditingJugador(null)
@@ -976,7 +890,7 @@ export default function JugadoresPage() {
       username: jugador.username,
       password: "",
       estado: jugador.estado,
-      foto: jugador.foto || "", // Incluir la foto
+      foto: jugador.foto || "",
     })
     setShowCreateDialog(true)
   }
@@ -1051,9 +965,10 @@ export default function JugadoresPage() {
     return user?.email?.[0]?.toUpperCase() || "U"
   }
 
-  const getPosicionNombre = (posicionId: string) => {
-    const posicion = posiciones.find((p) => p.id === posicionId)
-    return posicion ? posicion.nombre : posicionId
+  // CAMBIO IMPORTANTE: Simplificar esta función para mostrar directamente el texto
+  const getPosicionNombre = (posicion: string) => {
+    // Ahora las posiciones se guardan como texto directamente
+    return posicion || "Sin posición"
   }
 
   const calcularEdad = (fechaNacimiento: string) => {
@@ -1329,7 +1244,7 @@ export default function JugadoresPage() {
                       </select>
                     </div>
 
-                    {/* Agregar después del campo de estado */}
+                    {/* Foto del jugador */}
                     <div className="space-y-2">
                       <Label htmlFor="foto">Foto del Jugador</Label>
                       <div className="space-y-3">
@@ -1513,7 +1428,7 @@ export default function JugadoresPage() {
                           <strong>Rol:</strong> Jugador (asignado automáticamente)
                         </p>
                         <p className="text-sm text-blue-700 mt-1">
-                          El jugador podrá acceder al sistema con sus credenciales.
+                          El jugador podrá acceder al sistema con sus credenciales en su primer login.
                         </p>
                       </div>
                     </div>
@@ -1627,7 +1542,16 @@ export default function JugadoresPage() {
                         <p className="text-sm text-gray-600">
                           {jugador.nombre} {jugador.apellido}
                         </p>
-                        <Badge variant={jugador.estado === "activo" ? "default" : "secondary"}>{jugador.estado}</Badge>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant={jugador.estado === "activo" ? "default" : "secondary"}>
+                            {jugador.estado}
+                          </Badge>
+                          {jugador.needsActivation && (
+                            <Badge variant="outline" className="text-orange-600 border-orange-200">
+                              Pendiente activación
+                            </Badge>
+                          )}
+                        </div>
                       </div>
                     </div>
                     <DropdownMenu>
@@ -1693,6 +1617,11 @@ export default function JugadoresPage() {
                   <div className="pt-2 border-t">
                     <p className="text-xs text-gray-500">Creado: {jugador.fechaCreacion.toLocaleDateString()}</p>
                     <p className="text-xs text-gray-500">Por: {jugador.creadoPor}</p>
+                    {jugador.needsActivation && (
+                      <p className="text-xs text-orange-600 mt-1">
+                        Se activará automáticamente en el primer login del jugador
+                      </p>
+                    )}
                   </div>
                 </CardContent>
               </Card>
