@@ -342,139 +342,128 @@ export default function PartidosPage() {
     }
   }
 
-  const syncPartidoWithCalendar = async (partidoData: any, action: "create" | "update" | "delete") => {
-    if (!cliente?.id) return
+  function syncPartidoWithCalendar(partidoData: any, action: "create" | "update" | "delete") {
+    return (async () => {
+      if (!cliente?.id) return
 
-    try {
-      const fechaPartido = partidoData.fecha // Ya está en formato YYYY-MM-DD
-      const horario = partidoData.horario
-
-      if (action === "delete") {
-        // Para eliminación, buscar y eliminar la actividad del partido
-        const actividadesRef = collection(db, `calendario/${cliente.id}/actividades`)
-        const actividadesQuery = query(actividadesRef, where("fecha", "==", fechaPartido))
-        const actividadesSnapshot = await getDocs(actividadesQuery)
-        
-        // Buscar la actividad que corresponde a este partido
-        const actividadPartido = actividadesSnapshot.docs.find(doc => {
-          const data = doc.data()
-          return data.titulo.includes(`vs ${partidoData.rival}`) && data.titulo.includes("🏆")
-        })
-        
-        if (actividadPartido) {
-          await deleteDoc(doc(db, `calendario/${cliente.id}/actividades`, actividadPartido.id))
-          console.log("✅ Actividad del partido eliminada del calendario")
-        }
-        return
-      }
-
-      // Crear título para el calendario
-      let tituloActividad = `🏆 ${partidoData.torneo}: vs ${partidoData.rival}`
-      if (partidoData.estadio) {
-        tituloActividad += ` (${partidoData.estadio})`
-      }
-      if (partidoData.estado === "jugado" && partidoData.resultado) {
-        tituloActividad += ` - Resultado: ${partidoData.resultado}`
-      }
-      if (partidoData.estado === "cancelado") {
-        tituloActividad += ` - CANCELADO`
-      }
-
-      // Datos de la actividad para el calendario
-      const actividadData = {
-        titulo: tituloActividad,
-        hora: horario,
-        fecha: fechaPartido, // Mantener el formato YYYY-MM-DD
-        clienteId: cliente.id,
-        creadoPor: user?.email || "",
-        fechaCreacion: new Date(),
-      }
-
-      const actividadesRef = collection(db, `calendario/${cliente.id}/actividades`)
-
-      if (action === "create") {
-        // Crear nueva actividad en el calendario
-        await addDoc(actividadesRef, actividadData)
-        console.log("✅ Actividad del partido creada en el calendario")
-      } else if (action === "update") {
-        // Buscar y actualizar la actividad existente
-        const actividadesQuery = query(actividadesRef, where("fecha", "==", fechaPartido))
-        const actividadesSnapshot = await getDocs(actividadesQuery)
-        
-        // Buscar la actividad que corresponde a este partido
-        const actividadPartido = actividadesSnapshot.docs.find(doc => {
-          const data = doc.data()
-          return data.titulo.includes(`vs ${partidoData.rival}`) && data.titulo.includes("🏆")
-        })
-        
-        if (actividadPartido) {
-          // Actualizar actividad existente
-          await updateDoc(doc(db, `calendario/${cliente.id}/actividades`, actividadPartido.id), actividadData)
-          console.log("✅ Actividad del partido actualizada en el calendario")
-        } else {
-          // Si no existe, crear nueva actividad
-          await addDoc(actividadesRef, actividadData)
-          console.log("✅ Nueva actividad del partido creada en el calendario")
-        }
-      }
-
-      console.log("✅ Calendario sincronizado con Firestore")
-    } catch (firestoreError) {
-      console.log("⚠️ Error sincronizando calendario en Firestore:", firestoreError)
-      
-      // Fallback a localStorage
       try {
-        const savedCalendar = localStorage.getItem(`calendario_${cliente.id}`) || "{}"
-        const calendarData = JSON.parse(savedCalendar)
+        const fechaPartido = partidoData.fecha // YYYY-MM-DD
+        const horario = partidoData.horario
+
+        // Construye el título según lo solicitado
+        const buildTitulo = (p: any) => {
+          let titulo = `Partido vs ${p.rival}`
+          if (p.estadio) titulo += ` (${p.estadio})`
+          return titulo
+        }
 
         if (action === "delete") {
-          // Eliminar del localStorage
-          if (calendarData[partidoData.fecha]) {
-            calendarData[partidoData.fecha] = calendarData[partidoData.fecha].filter((activity: string) => {
-              return !(activity.includes(`vs ${partidoData.rival}`) && activity.includes("🏆"))
-            })
-            if (calendarData[partidoData.fecha].length === 0) {
-              delete calendarData[partidoData.fecha]
-            }
+          // Buscar y eliminar actividad del mismo día que empiece con "Partido vs {rival}"
+          const actividadesRef = collection(db, `calendario/${cliente.id}/actividades`)
+          const actividadesQueryRef = query(actividadesRef, where("fecha", "==", fechaPartido))
+          const actividadesSnapshot = await getDocs(actividadesQueryRef)
+
+          const actividadPartido = actividadesSnapshot.docs.find((d) => {
+            const data = d.data() as any
+            const expectedPrefix = `Partido vs ${partidoData.rival}`
+            return typeof data.titulo === "string" && data.titulo.startsWith(expectedPrefix)
+          })
+
+          if (actividadPartido) {
+            await deleteDoc(doc(db, `calendario/${cliente.id}/actividades`, actividadPartido.id))
+            console.log("✅ Actividad del partido eliminada del calendario")
           }
-        } else {
-          // Crear o actualizar en localStorage
-          let tituloActividad = `${horario} - 🏆 ${partidoData.torneo}: vs ${partidoData.rival}`
-          if (partidoData.estadio) {
-            tituloActividad += ` (${partidoData.estadio})`
+          return
+        }
+
+        const actividadData = {
+          titulo: buildTitulo(partidoData),
+          hora: horario,
+          fecha: partidoData.fecha,
+          clienteId: cliente.id,
+          creadoPor: user?.email || "",
+          fechaCreacion: new Date(),
+        }
+
+        const actividadesRef = collection(db, `calendario/${cliente.id}/actividades`)
+
+        if (action === "create") {
+          await addDoc(actividadesRef, actividadData)
+          console.log("✅ Actividad del partido creada en el calendario")
+        } else if (action === "update") {
+          // Intentar encontrar la actividad existente del mismo día que corresponda a este partido
+          const actividadesQueryRef = query(actividadesRef, where("fecha", "==", actividadData.fecha))
+          const actividadesSnapshot = await getDocs(actividadesQueryRef)
+
+          const actividadPartido = actividadesSnapshot.docs.find((d) => {
+            const data = d.data() as any
+            const expectedPrefix = `Partido vs ${partidoData.rival}`
+            return typeof data.titulo === "string" && data.titulo.startsWith(expectedPrefix)
+          })
+
+          if (actividadPartido) {
+            await updateDoc(doc(db, `calendario/${cliente.id}/actividades`, actividadPartido.id), actividadData)
+            console.log("✅ Actividad del partido actualizada en el calendario")
+          } else {
+            await addDoc(actividadesRef, actividadData)
+            console.log("✅ Nueva actividad del partido creada en el calendario")
           }
-          if (partidoData.estado === "jugado" && partidoData.resultado) {
-            tituloActividad += ` - Resultado: ${partidoData.resultado}`
-          }
-          if (partidoData.estado === "cancelado") {
-            tituloActividad += ` - CANCELADO`
+        }
+
+        console.log("✅ Calendario sincronizado con Firestore")
+      } catch (firestoreError) {
+        console.log("⚠️ Error sincronizando calendario en Firestore:", firestoreError)
+
+        // Fallback a localStorage manteniendo el nuevo formato de título
+        try {
+          const savedCalendar = localStorage.getItem(`calendario_${cliente.id}`) || "{}"
+          const calendarData = JSON.parse(savedCalendar)
+
+          const buildTitulo = (p: any) => {
+            let titulo = `Partido vs ${p.rival}`
+            if (p.estadio) titulo += ` (${p.estadio})`
+            return titulo
           }
 
-          if (action === "create") {
+          const tituloActividad = `${partidoData.horario} - ${buildTitulo(partidoData)}`
+
+          if (action === "delete") {
+            if (calendarData[partidoData.fecha]) {
+              calendarData[partidoData.fecha] = calendarData[partidoData.fecha].filter((activity: string) => {
+                // activity puede tener prefijo "HH:mm - ..."
+                const titlePart = activity.includes(" - ") ? activity.split(" - ").slice(1).join(" - ") : activity
+                const expectedPrefix = `Partido vs ${partidoData.rival}`
+                return !titlePart.startsWith(expectedPrefix)
+              })
+              if (calendarData[partidoData.fecha].length === 0) {
+                delete calendarData[partidoData.fecha]
+              }
+            }
+          } else if (action === "create") {
             calendarData[partidoData.fecha] = [...(calendarData[partidoData.fecha] || []), tituloActividad]
           } else if (action === "update") {
             const currentActivities = calendarData[partidoData.fecha] || []
             const updatedActivities = currentActivities.map((activity: string) => {
-              if (activity.includes(`vs ${partidoData.rival}`) && activity.includes("🏆")) {
+              const titlePart = activity.includes(" - ") ? activity.split(" - ").slice(1).join(" - ") : activity
+              const expectedPrefix = `Partido vs ${partidoData.rival}`
+              if (titlePart.startsWith(expectedPrefix)) {
                 return tituloActividad
               }
               return activity
             })
-
-            if (!updatedActivities.some((activity: string) => activity === tituloActividad)) {
+            if (!updatedActivities.includes(tituloActividad)) {
               updatedActivities.push(tituloActividad)
             }
-
             calendarData[partidoData.fecha] = updatedActivities
           }
-        }
 
-        localStorage.setItem(`calendario_${cliente.id}`, JSON.stringify(calendarData))
-        console.log("✅ Calendario actualizado en localStorage")
-      } catch (localError) {
-        console.error("❌ Error actualizando calendario en localStorage:", localError)
+          localStorage.setItem(`calendario_${cliente.id}`, JSON.stringify(calendarData))
+          console.log("✅ Calendario actualizado en localStorage")
+        } catch (localError) {
+          console.error("❌ Error actualizando calendario en localStorage:", localError)
+        }
       }
-    }
+    })()
   }
 
   const handleEdit = (partido: Partido) => {

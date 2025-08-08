@@ -2,15 +2,26 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useAuth } from "@/components/auth/AuthProvider"
 import { useRouter } from "next/navigation"
-import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc, query, where, getDocs } from "firebase/firestore"
+import {
+  collection,
+  onSnapshot,
+  addDoc,
+  deleteDoc,
+  doc,
+  updateDoc,
+  query,
+  where,
+} from "firebase/firestore"
 import { db } from "@/lib/firebaseConfig"
+import { onAuthStateChanged } from "firebase/auth"
+import { auth } from "@/lib/firebaseConfig"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { ArrowLeft, Plus, Calendar, Clock, Edit, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowLeft, Plus, Calendar, Edit, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -19,7 +30,7 @@ interface Actividad {
   id?: string
   titulo: string
   hora: string
-  fecha: string
+  fecha: string // YYYY-MM-DD (local)
   clienteId: string
   creadoPor: string
   fechaCreacion: Date
@@ -44,28 +55,25 @@ const diasSemana = [
   { key: "domingo", label: "Domingo", index: 0 },
 ]
 
-// Función para formatear fecha sin problemas de zona horaria
+// Helpers de fecha (siempre en local)
 const formatDateForInput = (date: Date): string => {
   const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
   return `${year}-${month}-${day}`
 }
-
-// Función para crear fecha local sin problemas de zona horaria
 const createLocalDate = (dateString: string): Date => {
-  const [year, month, day] = dateString.split('-').map(Number)
+  const [year, month, day] = dateString.split("-").map(Number)
   return new Date(year, month - 1, day)
 }
-
-// Función para obtener fecha en formato YYYY-MM-DD en zona horaria local
-const getLocalDateString = (date: Date): string => {
-  return formatDateForInput(date)
-}
+const getLocalDateString = (date: Date): string => formatDateForInput(date)
 
 export default function CalendarioPage() {
   const { user, loading } = useAuth()
   const router = useRouter()
+
+  const [authReady, setAuthReady] = useState(false)
+
   const [actividades, setActividades] = useState<Actividad[]>([])
   const [loadingData, setLoadingData] = useState(true)
   const [error, setError] = useState("")
@@ -83,46 +91,42 @@ export default function CalendarioPage() {
     fecha: "",
   })
 
+  // Asegurarnos de que Firebase Auth haya establecido el usuario antes de leer Firestore
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
+      setAuthReady(!!firebaseUser)
+    })
+    return () => unsub()
+  }, [])
+
+  // Redirigir si no hay user cuando terminó la verificación
   useEffect(() => {
     if (!loading && !user) {
       router.push("/login")
     }
   }, [user, loading, router])
 
-  useEffect(() => {
-    if (user) {
-      loadUserData()
-    }
-  }, [user])
-
-  useEffect(() => {
-    if (userData) {
-      loadActividades()
-    }
-  }, [userData, currentWeek])
-
-  // Función para cargar datos del usuario desde Firestore
+  // Función para cargar datos del usuario desde Firestore (requiere user autenticado)
   const loadUserData = async () => {
     try {
       setLoadingUserData(true)
-      console.log("🔄 Cargando datos del usuario:", user?.email)
+      setError("")
 
       if (!user?.email) {
         throw new Error("No hay usuario autenticado")
       }
 
-      // Paso 1: Buscar usuario en la colección staff primero (donde están los datos correctos)
-      console.log("📊 Buscando usuario en colección 'staff'...")
-      const staffRef = collection(db, "staff")
+      const { collection: col, where, query, getDocs } = await import("firebase/firestore")
+      const { db } = await import("@/lib/firebaseConfig")
+
+      // 1) Buscar en 'staff'
+      const staffRef = col(db, "staff")
       const staffQuery = query(staffRef, where("email", "==", user.email))
       const staffSnapshot = await getDocs(staffQuery)
 
       if (!staffSnapshot.empty) {
-        // Usuario encontrado en la colección staff
-        const staffDoc = staffSnapshot.docs[0].data()
-        console.log("✅ Usuario encontrado en colección staff:", staffDoc)
-
-        if (staffDoc.clienteId) {
+        const staffDoc = staffSnapshot.docs[0].data() as any
+        if (staffDoc?.clienteId) {
           setUserData({
             clienteId: staffDoc.clienteId,
             rol: staffDoc.rol || "staff",
@@ -131,24 +135,19 @@ export default function CalendarioPage() {
             firstName: staffDoc.firstName || staffDoc.nombre,
             lastName: staffDoc.lastName || staffDoc.apellido,
           })
-          console.log("✅ ClienteId encontrado en staff:", staffDoc.clienteId)
           setLoadingUserData(false)
           return
         }
       }
 
-      // Paso 2: Si no se encuentra en staff, buscar en la colección users
-      console.log("📊 Buscando usuario en colección 'users'...")
-      const usersRef = collection(db, "users")
+      // 2) Buscar en 'users'
+      const usersRef = col(db, "users")
       const usersQuery = query(usersRef, where("email", "==", user.email))
       const usersSnapshot = await getDocs(usersQuery)
 
       if (!usersSnapshot.empty) {
-        // Usuario encontrado en Firestore users
-        const userDoc = usersSnapshot.docs[0].data()
-        console.log("✅ Usuario encontrado en colección users:", userDoc)
-
-        if (userDoc.clienteId) {
+        const userDoc = usersSnapshot.docs[0].data() as any
+        if (userDoc?.clienteId) {
           setUserData({
             clienteId: userDoc.clienteId,
             rol: userDoc.rol || "staff",
@@ -157,19 +156,17 @@ export default function CalendarioPage() {
             firstName: userDoc.firstName || userDoc.nombre,
             lastName: userDoc.lastName || userDoc.apellido,
           })
-          console.log("✅ ClienteId encontrado en users:", userDoc.clienteId)
           setLoadingUserData(false)
           return
         }
       }
 
-      // Paso 3: Buscar en localStorage como fallback
-      console.log("📱 Buscando usuario en localStorage...")
-      const savedUsers = localStorage.getItem("usuarios")
+      // 3) Fallback localStorage
+      const savedUsers = typeof window !== "undefined" ? localStorage.getItem("usuarios") : null
       if (savedUsers) {
         const users = JSON.parse(savedUsers)
         const foundUser = users.find((u: any) => u.email === user.email)
-        if (foundUser && foundUser.clienteId) {
+        if (foundUser?.clienteId) {
           setUserData({
             clienteId: foundUser.clienteId,
             rol: foundUser.rol || "staff",
@@ -178,35 +175,36 @@ export default function CalendarioPage() {
             firstName: foundUser.firstName || foundUser.nombre,
             lastName: foundUser.lastName || foundUser.apellido,
           })
-          console.log("✅ Datos de usuario cargados desde localStorage:", foundUser.clienteId)
           setLoadingUserData(false)
           return
         }
       }
 
-      // Si no se encuentra en ningún lado, mostrar error
-      console.error("❌ Usuario no encontrado en ninguna colección")
       setError("Usuario no encontrado. Verifica que tu cuenta esté configurada correctamente en la colección 'staff'.")
       setLoadingUserData(false)
-
-    } catch (error) {
-      console.error("❌ Error cargando datos del usuario:", error)
+    } catch (err: any) {
       setError("Error cargando datos del usuario. Revisa la consola para más detalles.")
       setLoadingUserData(false)
+      console.error("Error en loadUserData:", err)
     }
   }
 
-  // Función para obtener el lunes de la semana actual
+  // Cargar userData solo cuando Auth está listo y hay user
+  useEffect(() => {
+    if (authReady && user) {
+      loadUserData()
+    }
+  }, [authReady, user])
+
+  // Cálculo de semana (lunes a domingo)
   const getMondayOfWeek = (date: Date) => {
     const d = new Date(date)
     const day = d.getDay()
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1) // Ajustar para que lunes sea el primer día
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1)
     return new Date(d.setDate(diff))
   }
-
-  // Función para obtener las fechas de la semana (lunes a domingo)
   const getWeekDates = (mondayDate: Date) => {
-    const dates = []
+    const dates: Date[] = []
     for (let i = 0; i < 7; i++) {
       const date = new Date(mondayDate)
       date.setDate(mondayDate.getDate() + i)
@@ -215,154 +213,103 @@ export default function CalendarioPage() {
     return dates
   }
 
-  const weekDates = getWeekDates(getMondayOfWeek(currentWeek))
+  const weekDates = useMemo(() => getWeekDates(getMondayOfWeek(currentWeek)), [currentWeek])
+  const startDate = useMemo(() => getLocalDateString(weekDates[0]), [weekDates])
+  const endDate = useMemo(() => getLocalDateString(weekDates[6]), [weekDates])
 
-  const loadActividades = () => {
-    if (!userData?.clienteId) {
-      console.log("⚠️ No hay clienteId disponible")
-      setError("No se pudo determinar el cliente. Recarga la página.")
-      setLoadingData(false)
-      return
-    }
+  // Suscripción a actividades SOLO si:
+  // - Auth está listo
+  // - Hay userData con clienteId
+  // - Tenemos rango de semana
+  useEffect(() => {
+    if (!authReady || !userData?.clienteId) return
 
-    try {
-      setLoadingData(true)
-      setPermissionError(false)
-      setError("")
+    setLoadingData(true)
+    setPermissionError(false)
+    setError("")
 
-      console.log("🔄 Cargando actividades para clienteId:", userData.clienteId)
-      console.log("🔄 Ruta de Firestore:", `calendario/${userData.clienteId}/actividades`)
+    // Subcolección: calendario/{clienteId}/actividades
+    const actividadesRef = collection(db, `calendario/${userData.clienteId}/actividades`)
 
-      // Obtener fechas de la semana actual (lunes a domingo) en formato local
-      const startDate = getLocalDateString(weekDates[0])
-      const endDate = getLocalDateString(weekDates[6])
-      console.log("📅 Rango de fechas (local):", startDate, "a", endDate)
+    // Filtramos por rango de la semana en el servidor (fecha es YYYY-MM-DD)
+    const q = query(
+      actividadesRef,
+      where("fecha", ">=", startDate),
+      where("fecha", "<=", endDate),
+    )
 
-      // Usar la estructura correcta: calendario/{clienteId}/actividades
-      const actividadesRef = collection(db, `calendario/${userData.clienteId}/actividades`)
-      console.log("🔗 Referencia creada:", actividadesRef.path)
-
-      const unsubscribe = onSnapshot(
-        actividadesRef,
-        (snapshot) => {
-          console.log("📊 Snapshot recibido. Docs:", snapshot.docs.length)
-
-          if (snapshot.empty) {
-            console.log("📭 No hay documentos en la colección")
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const list = snapshot.docs.map((d) => {
+          const data = d.data() as any
+          const item: Actividad = {
+            id: d.id,
+            titulo: data.titulo || "",
+            hora: data.hora || "",
+            fecha: data.fecha || "",
+            clienteId: data.clienteId || "",
+            creadoPor: data.creadoPor || "",
+            fechaCreacion: data.fechaCreacion ? new Date(data.fechaCreacion.toDate?.() ?? data.fechaCreacion) : new Date(),
           }
+          return item
+        })
 
-          const actividadesList = snapshot.docs.map((doc) => {
-            const data = doc.data()
-            console.log("📄 Documento:", doc.id, data)
-            return {
-              id: doc.id,
-              titulo: data.titulo || "",
-              hora: data.hora || "",
-              fecha: data.fecha || "",
-              clienteId: data.clienteId || "",
-              creadoPor: data.creadoPor || "",
-              fechaCreacion: data.fechaCreacion || new Date(),
-            }
-          }) as Actividad[]
+        // Ordenar por fecha y hora en cliente (evitamos índices compuestos)
+        list.sort((a, b) => (a.fecha === b.fecha ? a.hora.localeCompare(b.hora) : a.fecha.localeCompare(b.fecha)))
 
-          console.log("📋 Total actividades antes de filtrar:", actividadesList.length)
+        setActividades(list)
+        setLoadingData(false)
+      },
+      (err: any) => {
+        console.error("Error onSnapshot calendario:", err)
+        if (err?.code === "permission-denied") {
+          setPermissionError(true)
+          setError("Sin permisos para acceder al calendario. Verifica las reglas de Firestore.")
+        } else if (err?.code === "not-found") {
+          setError(`La colección calendario/${userData.clienteId}/actividades no existe.`)
+        } else {
+          setError(`Error cargando actividades: ${err?.message ?? "desconocido"}`)
+        }
+        setLoadingData(false)
+      }
+    )
 
-          // Filtrar por rango de fechas en el cliente
-          const actividadesFiltradas = actividadesList.filter((actividad) => {
-            const enRango = actividad.fecha >= startDate && actividad.fecha <= endDate
-            console.log(
-              `📅 Actividad ${actividad.titulo} (${actividad.fecha}): ${enRango ? "✅ En rango" : "❌ Fuera de rango"}`,
-            )
-            return enRango
-          })
-
-          // Ordenar manualmente en el cliente
-          actividadesFiltradas.sort((a, b) => {
-            if (a.fecha !== b.fecha) {
-              return a.fecha.localeCompare(b.fecha)
-            }
-            return a.hora.localeCompare(b.hora)
-          })
-
-          setActividades(actividadesFiltradas)
-          setLoadingData(false)
-          console.log(`✅ Actividades finales para cliente ${userData.clienteId}:`, actividadesFiltradas.length)
-        },
-        (error) => {
-          console.error("❌ Error cargando actividades:", error)
-          console.error("❌ Error code:", error.code)
-          console.error("❌ Error message:", error.message)
-
-          if (error.code === "permission-denied") {
-            setPermissionError(true)
-            setError("Sin permisos para acceder al calendario. Verifica las reglas de Firestore.")
-          } else if (error.code === "not-found") {
-            setError(`La colección calendario/${userData.clienteId}/actividades no existe.`)
-          } else {
-            setError(`Error cargando actividades: ${error.message}`)
-          }
-          setLoadingData(false)
-        },
-      )
-
-      return () => unsubscribe()
-    } catch (error) {
-      console.error("❌ Error configurando listener:", error)
-      setError(`Error configurando calendario: ${error.message}`)
-      setLoadingData(false)
-    }
-  }
+    return () => unsubscribe()
+  }, [authReady, userData?.clienteId, startDate, endDate])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
     if (!userData?.clienteId) {
       setError("No se pudo determinar el cliente. Intenta recargar la página.")
       return
     }
 
     try {
-      console.log("💾 Guardando actividad para cliente:", userData.clienteId)
-
-      // Usar la estructura correcta: calendario/{clienteId}/actividades
       const actividadesRef = collection(db, `calendario/${userData.clienteId}/actividades`)
-      console.log("🔗 Ruta de guardado:", actividadesRef.path)
-
-      // Solo los campos que necesitas - asegurándonos de que la fecha se guarde correctamente
       const actividadData: Omit<Actividad, "id"> = {
         titulo: formData.titulo,
         hora: formData.hora,
-        fecha: formData.fecha, // Ya está en formato YYYY-MM-DD
+        fecha: formData.fecha,
         clienteId: userData.clienteId,
         creadoPor: user?.email || "",
         fechaCreacion: new Date(),
       }
 
-      console.log("📄 Datos a guardar:", actividadData)
-
-      if (editingActividad) {
-        const docRef = doc(db, `calendario/${userData.clienteId}/actividades`, editingActividad.id!)
-        await updateDoc(docRef, actividadData)
-        console.log("✅ Actividad actualizada para cliente:", userData.clienteId)
+      if (editingActividad?.id) {
+        const ref = doc(db, `calendario/${userData.clienteId}/actividades`, editingActividad.id)
+        await updateDoc(ref, actividadData as any)
       } else {
-        const docRef = await addDoc(actividadesRef, actividadData)
-        console.log("✅ Actividad creada con ID:", docRef.id, "para cliente:", userData.clienteId)
+        await addDoc(actividadesRef, actividadData as any)
       }
 
-      // Resetear formulario
-      setFormData({
-        titulo: "",
-        hora: "",
-        fecha: "",
-      })
+      setFormData({ titulo: "", hora: "", fecha: "" })
       setEditingActividad(null)
       setDialogOpen(false)
       setSelectedDate("")
-    } catch (error) {
-      console.error("❌ Error guardando actividad:", error)
-      console.error("❌ Error code:", error.code)
-      console.error("❌ Error message:", error.message)
-      setError(`Error guardando actividad: ${error.message}`)
+    } catch (err: any) {
+      console.error("Error guardando actividad:", err)
+      setError(`Error guardando actividad: ${err?.message ?? "desconocido"}`)
     }
   }
 
@@ -378,19 +325,17 @@ export default function CalendarioPage() {
 
   const handleDelete = async (actividadId: string) => {
     if (!confirm("¿Estás seguro de que quieres eliminar esta actividad?")) return
-
     try {
-      const docRef = doc(db, `calendario/${userData?.clienteId}/actividades`, actividadId)
-      await deleteDoc(docRef)
-      console.log("✅ Actividad eliminada")
-    } catch (error) {
-      console.error("❌ Error eliminando actividad:", error)
-      setError(`Error eliminando actividad: ${error.message}`)
+      const ref = doc(db, `calendario/${userData?.clienteId}/actividades`, actividadId)
+      await deleteDoc(ref)
+    } catch (err: any) {
+      console.error("Error eliminando actividad:", err)
+      setError(`Error eliminando actividad: ${err?.message ?? "desconocido"}`)
     }
   }
 
   const getActividadesPorFecha = (fecha: string) => {
-    return actividades.filter((actividad) => actividad.fecha === fecha)
+    return actividades.filter((a) => a.fecha === fecha)
   }
 
   const handleDayClick = (fecha: string) => {
@@ -406,21 +351,16 @@ export default function CalendarioPage() {
   }
 
   const formatDateHeader = (date: Date) => {
-    return date.toLocaleDateString("es-ES", {
-      day: "numeric",
-      month: "short",
-    })
+    return date.toLocaleDateString("es-ES", { day: "numeric", month: "short" })
   }
-
   const formatWeekRange = () => {
     const start = weekDates[0]
     const end = weekDates[6]
     return `${start.getDate()} - ${end.getDate()} ${end.toLocaleDateString("es-ES", { month: "long", year: "numeric" })}`
   }
-
   const isWeekend = (date: Date) => {
     const day = date.getDay()
-    return day === 0 || day === 6 // Domingo o Sábado
+    return day === 0 || day === 6
   }
 
   if (loading || loadingUserData || loadingData) {
@@ -432,8 +372,8 @@ export default function CalendarioPage() {
             {loading
               ? "Verificando autenticación..."
               : loadingUserData
-                ? "Cargando datos del usuario..."
-                : "Cargando calendario..."}
+              ? "Cargando datos del usuario..."
+              : "Cargando calendario..."}
           </p>
         </div>
       </div>
@@ -518,11 +458,7 @@ export default function CalendarioPage() {
                         setDialogOpen(false)
                         setEditingActividad(null)
                         setSelectedDate("")
-                        setFormData({
-                          titulo: "",
-                          hora: "",
-                          fecha: "",
-                        })
+                        setFormData({ titulo: "", hora: "", fecha: "" })
                       }}
                       className="flex-1"
                     >
@@ -578,7 +514,7 @@ export default function CalendarioPage() {
         {/* Vista de calendario semanal - 7 días */}
         <div className="grid grid-cols-7 gap-4">
           {weekDates.map((date, index) => {
-            const fechaString = getLocalDateString(date) // Usar función local para evitar problemas de zona horaria
+            const fechaString = getLocalDateString(date)
             const actividadesDelDia = getActividadesPorFecha(fechaString)
             const isToday = date.toDateString() === new Date().toDateString()
             const isWeekendDay = isWeekend(date)
@@ -594,7 +530,9 @@ export default function CalendarioPage() {
                       {diasSemana[index].label}
                     </div>
                     <div
-                      className={`text-lg font-bold ${isToday ? "text-blue-600" : isWeekendDay ? "text-gray-600" : "text-gray-900"}`}
+                      className={`text-lg font-bold ${
+                        isToday ? "text-blue-600" : isWeekendDay ? "text-gray-600" : "text-gray-900"
+                      }`}
                     >
                       {formatDateHeader(date)}
                     </div>
@@ -623,12 +561,10 @@ export default function CalendarioPage() {
                             key={actividad.id}
                             className="group relative bg-white border border-gray-200 rounded-lg p-3 hover:shadow-md transition-all duration-200 hover:border-blue-300"
                           >
-                            {/* Hora destacada */}
                             <div className="flex items-center gap-2 mb-2">
                               <div className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-semibold">
                                 {actividad.hora}
                               </div>
-                              {/* Botones de acción - visibles al hacer hover */}
                               <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex gap-1">
                                 <Button
                                   variant="ghost"
@@ -654,15 +590,11 @@ export default function CalendarioPage() {
                                 </Button>
                               </div>
                             </div>
-                            
-                            {/* Título completo */}
-                            <div className="text-sm font-medium text-gray-900 leading-tight">
-                              {actividad.titulo}
-                            </div>
+
+                            <div className="text-sm font-medium text-gray-900 leading-tight">{actividad.titulo}</div>
                           </div>
                         ))}
-                        
-                        {/* Botón para agregar más actividades */}
+
                         <Button
                           variant="ghost"
                           size="sm"

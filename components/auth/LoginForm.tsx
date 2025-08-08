@@ -24,29 +24,18 @@ export default function LoginForm() {
     setError("")
 
     try {
-      console.log("🔐 Iniciando proceso de login...")
-
       // Detectar si es email o username
       const esEmail = usuario.includes("@")
-      
+
       if (esEmail && usuario.includes("@jugador.com")) {
         // Es un jugador que podría necesitar activación
-        console.log("🎯 Detectado como jugador, verificando si necesita activación...")
-        
         try {
-          // Intentar activar si es necesario
           const activationResult = await activateJugadorOnFirstLogin(usuario, password)
-          
           if (activationResult.success) {
-            console.log("✅ Jugador activado exitosamente en primer login")
-            
-            // Redirigir según el rol
             router.push("/jugador")
             return
           }
-        } catch (activationError: any) {
-          console.log("⚠️ Error en activación o jugador ya activado, intentando login normal...")
-          
+        } catch {
           // Si falla la activación, continuar con login normal
         }
       }
@@ -55,9 +44,6 @@ export default function LoginForm() {
       const result = await loginWithEmailOrUsername(usuario, password)
 
       if (result.success && result.userData) {
-        console.log("✅ Login exitoso")
-
-        // Redirigir según el rol del usuario
         if (result.userData.isAdmin) {
           router.push("/admin")
         } else if (result.userData.isStaff) {
@@ -65,14 +51,13 @@ export default function LoginForm() {
         } else if (result.userData.isJugador) {
           router.push("/jugador")
         } else {
-          // Fallback: redirigir al dashboard general
           router.push("/dashboard")
         }
       } else {
         setError(result.error || "Error de autenticación")
       }
-    } catch (error: any) {
-      console.error("❌ Error en login:", error)
+    } catch (error) {
+      console.error("Error en login:", error)
       setError("Error de conexión. Inténtalo de nuevo.")
     } finally {
       setLoading(false)
@@ -118,6 +103,7 @@ export default function LoginForm() {
                 className="absolute inset-y-0 right-0 pr-3 flex items-center"
                 onClick={() => setShowPassword(!showPassword)}
                 disabled={loading}
+                aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
               >
                 {showPassword ? (
                   <EyeOff className="h-4 w-4 text-gray-400" />
@@ -129,8 +115,8 @@ export default function LoginForm() {
           </div>
 
           {error && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
+            <Alert variant="destructive" role="alert">
+              <AlertCircle className="h-4 w-4" aria-hidden="true" />
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
@@ -138,7 +124,7 @@ export default function LoginForm() {
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? (
               <div className="flex items-center">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
                 Iniciando sesión...
               </div>
             ) : (
@@ -146,15 +132,6 @@ export default function LoginForm() {
             )}
           </Button>
         </form>
-
-        <div className="mt-6 text-center text-sm text-gray-600">
-          <p>Tipos de usuario:</p>
-          <div className="mt-2 space-y-1">
-            <p><strong>Admin:</strong> admin@staffpro.com</p>
-            <p><strong>Staff:</strong> usuario@staff.com</p>
-            <p><strong>Jugador:</strong> usuario@jugador.com</p>
-          </div>
-        </div>
       </CardContent>
     </Card>
   )
