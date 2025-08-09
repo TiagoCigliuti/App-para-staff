@@ -2,20 +2,57 @@
 
 import { useAuth } from "@/components/auth/AuthProvider"
 import { useRouter } from "next/navigation"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import LoginForm from "@/components/auth/LoginForm"
+import { collection, getDocs, limit, query, where } from "firebase/firestore"
+import { db } from "@/lib/firebaseConfig"
 
 export default function LoginPage() {
   const { user, loading } = useAuth()
   const router = useRouter()
+  const [checkingRole, setCheckingRole] = useState(false)
 
   useEffect(() => {
+    async function routeByRole() {
+      if (!user) return
+      setCheckingRole(true)
+      try {
+        // Determinar si el usuario tiene rol "cuestionario"
+        const candidates = ["usuarios-custionario", "usuarios-cuestionario"]
+        let isCuestionario = false
+        for (const colName of candidates) {
+          const baseRef = collection(db, colName)
+          const queries = [
+            user.uid ? query(baseRef, where("uid", "==", user.uid), limit(1)) : null,
+            user.email ? query(baseRef, where("email", "==", user.email), limit(1)) : null,
+          ].filter(Boolean) as any[]
+          for (const q of queries) {
+            const snap = await getDocs(q)
+            if (!snap.empty) {
+              const data = snap.docs[0].data() as any
+              if ((data.rol || "").toLowerCase() === "cuestionario") {
+                isCuestionario = true
+              }
+              break
+            }
+          }
+          if (isCuestionario) break
+        }
+        if (isCuestionario) {
+          router.push("/cuestionario")
+        } else {
+          router.push("/")
+        }
+      } finally {
+        setCheckingRole(false)
+      }
+    }
     if (!loading && user) {
-      router.push("/")
+      void routeByRole()
     }
   }, [user, loading, router])
 
-  if (loading) {
+  if (loading || checkingRole) {
     return (
       <main className="min-h-[100dvh] flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />

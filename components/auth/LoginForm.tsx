@@ -1,5 +1,7 @@
 "use client"
 
+import type React from "react"
+
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -7,8 +9,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Eye, EyeOff, AlertCircle } from 'lucide-react'
+import { Eye, EyeOff, AlertCircle } from "lucide-react"
 import { loginWithEmailOrUsername, activateJugadorOnFirstLogin } from "@/lib/firebase"
+import { collection, getDocs, limit, query, where } from "firebase/firestore"
+import { db } from "@/lib/firebaseConfig"
+import { getAuth } from "firebase/auth"
 
 export default function LoginForm() {
   const [usuario, setUsuario] = useState("")
@@ -43,6 +48,44 @@ export default function LoginForm() {
       // Login normal
       const result = await loginWithEmailOrUsername(usuario, password)
 
+      // Redirección directa para rol "cuestionario"
+      if (result.success) {
+        try {
+          const auth = getAuth()
+          const current = auth.currentUser
+          const candidates = ["usuarios-custionario", "usuarios-cuestionario"]
+          let isCuestionario = false
+
+          for (const colName of candidates) {
+            const baseRef = collection(db, colName)
+            const queries = [
+              current?.uid ? query(baseRef, where("uid", "==", current.uid), limit(1)) : null,
+              current?.email ? query(baseRef, where("email", "==", current.email), limit(1)) : null,
+            ].filter(Boolean) as any[]
+
+            for (const q of queries) {
+              const snap = await getDocs(q)
+              if (!snap.empty) {
+                const data = snap.docs[0].data() as any
+                if ((data.rol || "").toLowerCase() === "cuestionario") {
+                  isCuestionario = true
+                }
+                break
+              }
+            }
+
+            if (isCuestionario) break
+          }
+
+          if (isCuestionario) {
+            router.push("/cuestionario")
+            return
+          }
+        } catch {
+          // Si falla la detección, continúa con la lógica normal de otros roles.
+        }
+      }
+
       if (result.success && result.userData) {
         if (result.userData.isAdmin) {
           router.push("/admin")
@@ -68,9 +111,7 @@ export default function LoginForm() {
     <Card className="w-full max-w-md mx-auto">
       <CardHeader className="space-y-1">
         <CardTitle className="text-2xl font-bold text-center">Iniciar Sesión</CardTitle>
-        <CardDescription className="text-center">
-          Ingresa tus credenciales para acceder al sistema
-        </CardDescription>
+        <CardDescription className="text-center">Ingresa tus credenciales para acceder al sistema</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">

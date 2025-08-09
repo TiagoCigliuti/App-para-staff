@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Users, UserCheck, Palette, Activity, Building2, BarChart3, LogOut, User } from "lucide-react"
+import { Users, UserCheck, Palette, Activity, Building2, BarChart3, LogOut, User, ListChecks } from 'lucide-react'
 
 export default function AdminPage() {
   const { user, loading } = useAuth()
@@ -227,6 +227,25 @@ export default function AdminPage() {
               <p className="text-gray-600 text-sm mb-6">Crear y editar temas personalizados</p>
               <button
                 onClick={() => handleNavigation("/admin/temas")}
+                className="w-full bg-white border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+              >
+                Acceder
+              </button>
+            </div>
+          </div>
+
+          {/*
+            Usuarios para cuestionarios
+          */}
+          <div className="bg-white rounded-xl border border-gray-200 p-8 hover:shadow-lg transition-all duration-200 cursor-pointer">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                <ListChecks className="w-8 h-8 text-amber-600" />
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Usuarios para cuestionarios</h3>
+              <p className="text-gray-600 text-sm mb-6">Gestionar usuarios que recibirán y completarán cuestionarios</p>
+              <button
+                onClick={() => handleNavigation("/admin/usuarios-cuestionarios")}
                 className="w-full bg-white border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors font-medium"
               >
                 Acceder
