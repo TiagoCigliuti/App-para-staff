@@ -34,7 +34,12 @@ type Jugador = {
 }
 
 // utils
-const fechaISO = () => new Date().toISOString().split("T")[0]
+function localDateKey(d = new Date()) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
+}
 
 function pickPhotoPath(j: Partial<Jugador> | null | undefined) {
   if (!j) return ""
@@ -80,7 +85,6 @@ export default function CuestionarioPage() {
     async function bootstrap() {
       if (!user) return
       // Resolve clienteId by reading the cuestionario user mapping (supports both collection names)
-      // We replicate the logic quickly to avoid a direct import if not available in this module tree.
       async function getCuestionarioUserClienteId(params: { uid?: string | null; email?: string | null }) {
         const { uid, email } = params
         const collectionsToTry = ["usuarios-custionario", "usuarios-cuestionario"]
@@ -180,7 +184,7 @@ export default function CuestionarioPage() {
   }
 
   async function resolveTodayCompletion(list: Jugador[]) {
-    const today = fechaISO()
+    const today = localDateKey()
     // naive approach: 2N small queries
     const bienestarFlags: Record<string, boolean> = {}
     const rpeFlags: Record<string, boolean> = {}
@@ -290,7 +294,10 @@ export default function CuestionarioPage() {
                 <Card key={j.id} className="flex flex-col">
                   <CardHeader className="flex flex-row items-center gap-3">
                     <Avatar className="h-12 w-12 ring-1 ring-border">
-                      {photo && <AvatarImage src={photo || "/placeholder.svg"} alt={`Foto de ${nombre}`} />}
+                      <AvatarImage
+                        src={photo ?? "/placeholder.svg?height=96&width=96&query=jugador%20avatar%20placeholder"}
+                        alt={`Foto de ${nombre}`}
+                      />
                       <AvatarFallback className="font-medium">
                         {nombre
                           .split(" ")

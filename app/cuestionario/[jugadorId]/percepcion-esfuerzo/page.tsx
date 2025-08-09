@@ -36,7 +36,19 @@ const escalaRPE = [
   { valor: 10, label: "Máximo", descripcion: "Máximo esfuerzo" },
 ]
 
-const fechaISO = () => new Date().toISOString().split("T")[0]
+function localDateKey(d = new Date()) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
+}
+function localTimeHMS(d = new Date()) {
+  const hh = String(d.getHours()).padStart(2, "0")
+  const mm = String(d.getMinutes()).padStart(2, "0")
+  const ss = String(d.getSeconds()).padStart(2, "0")
+  return `${hh}:${mm}:${ss}`
+}
+const zonaHoraria = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 export default function RPEAsPage() {
   const params = useParams<{ jugadorId: string }>()
@@ -94,7 +106,7 @@ export default function RPEAsPage() {
       setJugador(j)
 
       const rpeRef = collection(db, "percepcion-esfuerzo")
-      const hoy = fechaISO()
+      const hoy = localDateKey()
       const qHoy = query(rpeRef, where("jugadorId", "==", j.id), where("fecha", "==", hoy))
       const snapHoy = await getDocs(qHoy)
       if (!snapHoy.empty) {
@@ -128,15 +140,20 @@ export default function RPEAsPage() {
     }
     setSubmitting(true)
     setError("")
+    const ahora = new Date()
+    const fLocal = localDateKey(ahora)
     const rpe = {
       jugadorId: jugador.id,
       jugadorEmail: jugador.email || "",
       clienteId: jugador.clienteId || "",
-      fecha: fechaISO(),
+      fecha: fLocal, // fecha local YYYY-MM-DD
+      fechaLocal: fLocal,
+      horaLocal: localTimeHMS(ahora), // HH:mm:ss local
+      zonaHoraria,
       nivelEsfuerzo: form.nivelEsfuerzo!,
       comentarios: form.comentarios || "",
-      fechaCreacion: new Date(),
-      uid: jugador.uid || jugador.id, // clave: usamos el uid del jugador si existe
+      fechaCreacion: ahora,
+      uid: jugador.uid || jugador.id,
     }
     try {
       const rpeRef = collection(db, "percepcion-esfuerzo")

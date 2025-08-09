@@ -83,7 +83,20 @@ const zonasDolorMuscular = [
   "Pie derecho",
 ]
 
-const fechaISO = () => new Date().toISOString().split("T")[0]
+function localDateKey(d = new Date()) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
+}
+function localTimeHMS(d = new Date()) {
+  const hh = String(d.getHours()).padStart(2, "0")
+  const mm = String(d.getMinutes()).padStart(2, "0")
+  const ss = String(d.getSeconds()).padStart(2, "0")
+  return `${hh}:${mm}:${ss}`
+}
+const zonaHoraria = Intl.DateTimeFormat().resolvedOptions().timeZone
+
 const fechaLarga = () => {
   const fecha = new Date()
   return fecha.toLocaleDateString("es-ES", { weekday: "long", year: "numeric", month: "long", day: "numeric" })
@@ -151,10 +164,9 @@ export default function BienestarAsPage() {
         return
       }
       setJugador(j)
-      // Load today's record
+      // Load today's record (by local date)
       const bienestarRef = collection(db, "bienestar")
-      const f = fechaISO()
-      // try exact today
+      const f = localDateKey()
       const qHoy = query(bienestarRef, where("jugadorId", "==", j.id), where("fecha", "==", f))
       const snapHoy = await getDocs(qHoy)
       if (!snapHoy.empty) {
@@ -174,7 +186,6 @@ export default function BienestarAsPage() {
         setForm(fd)
         setOriginalForm(fd)
       } else {
-        // no today; allow new
         setYaHoy(false)
       }
     }
@@ -201,20 +212,24 @@ export default function BienestarAsPage() {
     }
     setSubmitting(true)
     setError("")
-    const f = fechaISO()
+    const ahora = new Date()
+    const fLocal = localDateKey(ahora)
     const cuestionario: any = {
       jugadorId: jugador.id,
       jugadorEmail: jugador.email || "",
       clienteId: jugador.clienteId || "",
-      fecha: f,
+      fecha: fLocal, // fecha local YYYY-MM-DD
+      fechaLocal: fLocal,
+      horaLocal: localTimeHMS(ahora), // HH:mm:ss local
+      zonaHoraria, // IANA timezone
       estadoAnimo: form.estadoAnimo!,
       horasSueno: form.horasSueno!,
       calidadSueno: form.calidadSueno!,
       nivelRecuperacion: form.nivelRecuperacion!,
       dolorMuscular: form.dolorMuscular!,
       comentarios: form.comentarios || "",
-      fechaCreacion: new Date(),
-      uid: jugador.uid || jugador.id, // clave: usamos el uid del jugador si existe
+      fechaCreacion: ahora, // Date object (will serialize to timestamp)
+      uid: jugador.uid || jugador.id,
     }
     if (form.dolorMuscular! >= 3) {
       cuestionario.tipoDolorMuscular = form.tipoDolorMuscular
@@ -224,8 +239,8 @@ export default function BienestarAsPage() {
     }
     try {
       const bienestarRef = collection(db, "bienestar")
-      // Check today existing
-      const qHoy = query(bienestarRef, where("jugadorId", "==", jugador.id), where("fecha", "==", f))
+      // Check today existing (by local date)
+      const qHoy = query(bienestarRef, where("jugadorId", "==", jugador.id), where("fecha", "==", fLocal))
       const snapHoy = await getDocs(qHoy)
       if (!snapHoy.empty) {
         const existing = snapHoy.docs[0]
