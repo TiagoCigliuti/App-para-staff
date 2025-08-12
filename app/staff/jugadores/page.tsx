@@ -46,8 +46,6 @@ import {
   EyeOff,
   UserPlus,
   AlertCircle,
-  Wifi,
-  WifiOff,
   Upload,
   X,
 } from "lucide-react"
@@ -118,8 +116,6 @@ export default function JugadoresPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editingJugador, setEditingJugador] = useState<Jugador | null>(null)
   const [error, setError] = useState("")
-  const [firestoreConnected, setFirestoreConnected] = useState(false)
-  const [firestoreWriteEnabled, setFirestoreWriteEnabled] = useState(false)
 
   // Estados del formulario
   const [formData, setFormData] = useState({
@@ -150,6 +146,9 @@ export default function JugadoresPage() {
   const [showSugerenciasPrincipal, setShowSugerenciasPrincipal] = useState(false)
   const [showSugerenciasSecundaria, setShowSugerenciasSecundaria] = useState(false)
 
+  const [firestoreConnected, setFirestoreConnected] = useState(false)
+  const [firestoreWriteEnabled, setFirestoreWriteEnabled] = useState(false)
+
   useEffect(() => {
     if (!loading && !user) {
       router.push("/login")
@@ -158,18 +157,6 @@ export default function JugadoresPage() {
 
   useEffect(() => {
     if (user) {
-      // Probar conexión a Firestore al cargar
-      const checkFirestoreConnection = async () => {
-        const connected = await testFirestoreConnection()
-        setFirestoreConnected(connected)
-
-        if (connected) {
-          const writeEnabled = await testFirestoreWrite()
-          setFirestoreWriteEnabled(writeEnabled)
-        }
-      }
-
-      checkFirestoreConnection()
       loadStaffData()
     }
   }, [user])
@@ -180,6 +167,27 @@ export default function JugadoresPage() {
       loadPosiciones()
     }
   }, [staffUser, cliente])
+
+  useEffect(() => {
+    const checkFirestoreConnection = async () => {
+      try {
+        const connection = await testFirestoreConnection()
+        setFirestoreConnected(connection.success)
+
+        const write = await testFirestoreWrite()
+        setFirestoreWriteEnabled(write.success)
+
+        console.log("✅ Conexión a Firestore:", connection.success)
+        console.log("✅ Permisos de escritura:", write.success)
+      } catch (error) {
+        console.error("❌ Error al verificar conexión a Firestore:", error)
+        setFirestoreConnected(false)
+        setFirestoreWriteEnabled(false)
+      }
+    }
+
+    checkFirestoreConnection()
+  }, [])
 
   // Generar nombre de visualización automáticamente
   useEffect(() => {
@@ -438,23 +446,6 @@ export default function JugadoresPage() {
       // Inicializar como array vacío
       setPosiciones([])
 
-      if (!firestoreConnected) {
-        console.log("⚠️ Firestore no conectado, usando localStorage para posiciones")
-        const savedPosiciones = localStorage.getItem(`posiciones_${cliente?.id}`)
-        if (savedPosiciones) {
-          const parsedPosiciones = JSON.parse(savedPosiciones)
-          if (Array.isArray(parsedPosiciones) && parsedPosiciones.length > 0) {
-            const posicionesConFecha = parsedPosiciones.map((posicion: any) => ({
-              ...posicion,
-              fechaCreacion: new Date(posicion.fechaCreacion),
-            }))
-            setPosiciones(posicionesConFecha)
-            console.log("✅ Posiciones cargadas desde localStorage:", posicionesConFecha.length)
-          }
-        }
-        return
-      }
-
       try {
         const posicionesRef = collection(db, "posiciones")
         const posicionesQuery = query(posicionesRef, where("clienteId", "==", cliente?.id), orderBy("nombre", "asc"))
@@ -608,17 +599,11 @@ export default function JugadoresPage() {
           localStorage.setItem(`jugadores_${cliente.id}`, JSON.stringify(jugadoresData))
           console.log("💾 Backup guardado en localStorage")
         }
-
-        setFirestoreConnected(true)
-        setFirestoreWriteEnabled(true) // Asumimos que si podemos leer, probablemente podemos escribir
       } catch (firestoreError: any) {
         console.error("❌ Error detallado con Firestore:", firestoreError)
         console.error("❌ Código de error:", firestoreError.code)
         console.error("❌ Mensaje de error:", firestoreError.message)
         console.error("❌ Stack trace:", firestoreError.stack)
-
-        setFirestoreConnected(false)
-        setFirestoreWriteEnabled(false)
 
         // Solo usar localStorage como último recurso si Firestore falla completamente
         if (firestoreError.code === "unavailable" || firestoreError.code === "permission-denied") {
@@ -1011,16 +996,6 @@ export default function JugadoresPage() {
     return edad
   }
 
-  const getConnectionStatus = () => {
-    if (!firestoreConnected) {
-      return { icon: WifiOff, text: "Sin conexión - modo offline", color: "text-red-500" }
-    } else if (!firestoreWriteEnabled) {
-      return { icon: Wifi, text: "Conectado - permisos limitados", color: "text-yellow-500" }
-    } else {
-      return { icon: Wifi, text: "Conectado - todos los permisos", color: "text-green-500" }
-    }
-  }
-
   if (loading || loadingData) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -1049,9 +1024,6 @@ export default function JugadoresPage() {
     )
   }
 
-  const connectionStatus = getConnectionStatus()
-  const ConnectionIcon = connectionStatus.icon
-
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -1066,11 +1038,6 @@ export default function JugadoresPage() {
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">Gestión de Jugadores</h1>
                 <p className="text-gray-600 mt-1">{cliente ? cliente.club : "Cargando..."}</p>
-                {/* Indicador de conexión mejorado */}
-                <div className="flex items-center mt-2">
-                  <ConnectionIcon className={`w-4 h-4 mr-2 ${connectionStatus.color}`} />
-                  <span className={`text-xs ${connectionStatus.color}`}>{connectionStatus.text}</span>
-                </div>
               </div>
             </div>
             <div className="flex items-center space-x-4">
