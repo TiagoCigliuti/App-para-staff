@@ -912,14 +912,6 @@ export default function JugadoresPage() {
   const handleDelete = async (jugadorId: string) => {
     if (!confirm("¿Estás seguro de que quieres eliminar este jugador?")) return
 
-    if (!firestoreConnected || !firestoreWriteEnabled) {
-      // Solo eliminar localmente si no hay conexión o permisos
-      const updatedJugadores = jugadores.filter((jugador) => jugador.id !== jugadorId)
-      setJugadores(updatedJugadores)
-      localStorage.setItem(`jugadores_${cliente?.id}`, JSON.stringify(updatedJugadores))
-      return
-    }
-
     try {
       console.log("🔄 Eliminando jugador:", jugadorId)
 
@@ -1556,10 +1548,7 @@ export default function JugadoresPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={() => handleEdit(jugador)}
-                            disabled={!firestoreConnected || !firestoreWriteEnabled}
-                          >
+                          <DropdownMenuItem onClick={() => handleEdit(jugador)}>
                             <Edit className="w-4 h-4 mr-2" />
                             Editar
                           </DropdownMenuItem>
@@ -1567,7 +1556,6 @@ export default function JugadoresPage() {
                           <DropdownMenuItem
                             onClick={() => handleDelete(jugador.id)}
                             className="text-red-600 focus:text-red-600"
-                            disabled={!firestoreConnected || !firestoreWriteEnabled}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
                             Eliminar
