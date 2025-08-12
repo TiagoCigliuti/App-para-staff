@@ -26,6 +26,7 @@ type Jugador = {
   foto?: string
   photoURL?: string
   photoUrl?: string
+  fotoUrl?: string
   avatarUrl?: string
   avatar?: string
   fotoPerfil?: string
@@ -43,9 +44,17 @@ function localDateKey(d = new Date()) {
 
 function pickPhotoPath(j: Partial<Jugador> | null | undefined) {
   if (!j) return ""
-  const candidates = [j.foto, j.photoURL, j.photoUrl, j.avatarUrl, j.avatar, j.fotoPerfil, j.imagen, j.imageUrl].filter(
-    Boolean,
-  ) as string[]
+  const candidates = [
+    j.fotoUrl,
+    j.foto,
+    j.photoURL,
+    j.photoUrl,
+    j.avatarUrl,
+    j.avatar,
+    j.fotoPerfil,
+    j.imagen,
+    j.imageUrl,
+  ].filter(Boolean) as string[]
   return candidates[0] || ""
 }
 
@@ -137,6 +146,7 @@ export default function CuestionarioPage() {
             foto: data.foto,
             photoURL: data.photoURL,
             photoUrl: data.photoUrl,
+            fotoUrl: data.fotoUrl,
             avatarUrl: data.avatarUrl,
             avatar: data.avatar,
             fotoPerfil: data.fotoPerfil,
@@ -167,6 +177,11 @@ export default function CuestionarioPage() {
     const tasks = list.map(async (j) => {
       const v = pickPhotoPath(j)
       if (!v) return [j.id, undefined] as const
+
+      if (/^data:image\//i.test(v)) {
+        return [j.id, v] as const
+      }
+
       if (/^https?:\/\//i.test(v)) return [j.id, v] as const
       try {
         const url = await getDownloadURL(storageRef(storage, v))
@@ -285,7 +300,7 @@ export default function CuestionarioPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {sortedJugadores.map((j) => {
               const nombre = displayNameOf(j)
-              const photo = photoUrls[j.id]
+              const photo = photoUrls[j.id] ?? pickPhotoPath(j)
               const completoBienestar = !!doneBienestar[j.id]
               const completoRpe = !!doneRpe[j.id]
               const completoAmbos = completoBienestar && completoRpe

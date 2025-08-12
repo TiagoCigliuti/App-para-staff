@@ -6,7 +6,6 @@ import type React from "react"
 import { useAuth } from "@/components/auth/AuthProvider"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
-import { updateProfile } from "firebase/auth"
 import {
   collection,
   addDoc,
@@ -35,8 +34,27 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { ArrowLeft, Plus, MoreVertical, Edit, Trash2, User, LogOut, Eye, EyeOff, UserPlus, AlertCircle, Wifi, WifiOff, Upload, X } from 'lucide-react'
+import {
+  ArrowLeft,
+  Plus,
+  MoreVertical,
+  Edit,
+  Trash2,
+  User,
+  LogOut,
+  Eye,
+  EyeOff,
+  UserPlus,
+  AlertCircle,
+  Wifi,
+  WifiOff,
+  Upload,
+  X,
+} from "lucide-react"
 import { signOut } from "firebase/auth"
+
+import { storage } from "@/lib/firebaseConfig"
+import { ref, uploadString, getDownloadURL } from "firebase/storage"
 
 interface StaffUser {
   id: string
@@ -54,6 +72,7 @@ interface Cliente {
   nombre: string
   funcionalidades: string[]
   estado: string
+  club?: string // Agregando propiedad club
 }
 
 interface Jugador {
@@ -77,6 +96,7 @@ interface Jugador {
   firebaseUid?: string
   foto?: string
   needsActivation?: boolean
+  fotoUrl?: string
 }
 
 interface Posicion {
@@ -699,6 +719,15 @@ export default function JugadoresPage() {
         return
       }
 
+      let fotoUrl: string | null = null
+      if (formData.foto && formData.foto.startsWith("data:image")) {
+        const path = `jugadores/${cliente?.id || "sin-cliente"}/${formData.username}-${Date.now()}`
+        const imageRef = ref(storage, path)
+        // Cargamos el data URL (base64)
+        await uploadString(imageRef, formData.foto, "data_url")
+        fotoUrl = await getDownloadURL(imageRef)
+      }
+
       // CAMBIO IMPORTANTE: Usar directamente el texto de las posiciones
       const posicionPrincipalTexto = formData.posicionPrincipal.trim()
       const posicionSecundariaTexto = formData.posicionSecundaria.trim() || null
@@ -711,7 +740,7 @@ export default function JugadoresPage() {
           const posicionPrincipalExistente = posiciones.find(
             (p) => p.nombre.toLowerCase() === posicionPrincipalTexto.toLowerCase(),
           )
-          
+
           if (!posicionPrincipalExistente) {
             // Crear nueva posición principal para futuras sugerencias
             const posicionesRef = collection(db, "posiciones")
@@ -730,7 +759,7 @@ export default function JugadoresPage() {
             const posicionSecundariaExistente = posiciones.find(
               (p) => p.nombre.toLowerCase() === posicionSecundariaTexto.toLowerCase(),
             )
-            
+
             if (!posicionSecundariaExistente) {
               const posicionesRef = collection(db, "posiciones")
               const nuevaPosicionData = {
@@ -768,15 +797,15 @@ export default function JugadoresPage() {
             apellido: formData.apellido,
             nombreVisualizacion: formData.nombreVisualizacion,
             fechaNacimiento: formData.fechaNacimiento,
-            posicionPrincipal: posicionPrincipalTexto, // Usar el texto directamente
-            posicionSecundaria: posicionSecundariaTexto, // Usar el texto directamente
+            posicionPrincipal: posicionPrincipalTexto,
+            posicionSecundaria: posicionSecundariaTexto,
             altura: formData.altura ? Number.parseFloat(formData.altura) : null,
             peso: formData.peso ? Number.parseFloat(formData.peso) : null,
             username: formData.username,
             estado: formData.estado,
             fechaActualizacion: new Date(),
             actualizadoPor: user?.email || "unknown",
-            foto: formData.foto || null,
+            ...(fotoUrl ? { fotoUrl } : {}),
           }
 
           await updateDoc(jugadorRef, updateData)
@@ -809,8 +838,8 @@ export default function JugadoresPage() {
           apellido: formData.apellido,
           nombreVisualizacion: formData.nombreVisualizacion,
           fechaNacimiento: formData.fechaNacimiento,
-          posicionPrincipal: posicionPrincipalTexto, // Usar el texto directamente
-          posicionSecundaria: posicionSecundariaTexto, // Usar el texto directamente
+          posicionPrincipal: posicionPrincipalTexto,
+          posicionSecundaria: posicionSecundariaTexto,
           altura: formData.altura ? Number.parseFloat(formData.altura) : null,
           peso: formData.peso ? Number.parseFloat(formData.peso) : null,
           username: formData.username,
@@ -820,20 +849,20 @@ export default function JugadoresPage() {
           rol: "jugador",
           estado: formData.estado,
           creadoPor: user?.email || "unknown",
-          foto: formData.foto || null,
+          fotoUrl: fotoUrl || null,
         }
 
         // Usar la nueva función que no afecta la sesión actual
         try {
           console.log("🔄 Creando jugador sin afectar sesión actual...")
           console.log("📊 Datos del jugador a crear:", jugadorData)
-          
+
           const result = await createJugadorWithoutLogin(jugadorData, formData.password)
-          
+
           if (result.success) {
             console.log("✅ Jugador creado exitosamente:", result.jugadorId)
             setFormSuccess(result.message || "Jugador creado correctamente")
-            
+
             // Recargar jugadores
             await loadJugadores()
           } else {
@@ -1036,10 +1065,7 @@ export default function JugadoresPage() {
               </Button>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">Gestión de Jugadores</h1>
-                <p className="text-gray-600 mt-1">
-                  Administra los jugadores del equipo
-                  {cliente && <span className="text-sm"> • {cliente.nombre}</span>}
-                </p>
+                <p className="text-gray-600 mt-1">{cliente ? cliente.club : "Cargando..."}</p>
                 {/* Indicador de conexión mejorado */}
                 <div className="flex items-center mt-2">
                   <ConnectionIcon className={`w-4 h-4 mr-2 ${connectionStatus.color}`} />
@@ -1518,114 +1544,120 @@ export default function JugadoresPage() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {jugadores.map((jugador) => (
-              <Card key={jugador.id} className="hover:shadow-lg transition-shadow">
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                        {jugador.foto ? (
-                          <img
-                            src={jugador.foto || "/placeholder.svg"}
-                            alt={`Foto de ${jugador.nombreVisualizacion}`}
-                            className="w-12 h-12 rounded-full object-cover"
-                          />
-                        ) : (
-                          <span className="text-green-600 font-semibold text-lg">
-                            {jugador.nombre[0]}
-                            {jugador.apellido[0]}
-                          </span>
-                        )}
-                      </div>
-                      <div>
-                        <CardTitle className="text-lg">{jugador.nombreVisualizacion}</CardTitle>
-                        <p className="text-sm text-gray-600">
-                          {jugador.nombre} {jugador.apellido}
-                        </p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Badge variant={jugador.estado === "activo" ? "default" : "secondary"}>
-                            {jugador.estado}
-                          </Badge>
-                          {jugador.needsActivation && (
-                            <Badge variant="outline" className="text-orange-600 border-orange-200">
-                              Pendiente activación
-                            </Badge>
+            {jugadores
+              .sort((a, b) => {
+                const nombreA = `${a.nombre ?? ""} ${a.apellido ?? ""}`.trim().toLowerCase()
+                const nombreB = `${b.nombre ?? ""} ${b.apellido ?? ""}`.trim().toLowerCase()
+                return nombreA.localeCompare(nombreB)
+              })
+              .map((jugador) => (
+                <Card key={jugador.id} className="hover:shadow-lg transition-shadow">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                          {jugador.fotoUrl ? (
+                            <img
+                              src={jugador.fotoUrl || "/placeholder.svg"}
+                              alt={`Foto de ${jugador.nombreVisualizacion}`}
+                              className="w-12 h-12 rounded-full object-cover"
+                            />
+                          ) : (
+                            <span className="text-green-600 font-semibold text-lg">
+                              {jugador.nombre[0]}
+                              {jugador.apellido[0]}
+                            </span>
                           )}
                         </div>
+                        <div>
+                          <CardTitle className="text-lg">{jugador.nombreVisualizacion}</CardTitle>
+                          <p className="text-sm text-gray-600">
+                            {jugador.nombre} {jugador.apellido}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Badge variant={jugador.estado === "activo" ? "default" : "secondary"}>
+                              {jugador.estado}
+                            </Badge>
+                            {jugador.needsActivation && (
+                              <Badge variant="outline" className="text-orange-600 border-orange-200">
+                                Pendiente activación
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
                       </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm">
+                            <MoreVertical className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => handleEdit(jugador)}
+                            disabled={!firestoreConnected || !firestoreWriteEnabled}
+                          >
+                            <Edit className="w-4 h-4 mr-2" />
+                            Editar
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => handleDelete(jugador.id)}
+                            className="text-red-600 focus:text-red-600"
+                            disabled={!firestoreConnected || !firestoreWriteEnabled}
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Eliminar
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <MoreVertical className="w-4 h-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={() => handleEdit(jugador)}
-                          disabled={!firestoreConnected || !firestoreWriteEnabled}
-                        >
-                          <Edit className="w-4 h-4 mr-2" />
-                          Editar
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => handleDelete(jugador.id)}
-                          className="text-red-600 focus:text-red-600"
-                          disabled={!firestoreConnected || !firestoreWriteEnabled}
-                        >
-                          <Trash2 className="w-4 h-4 mr-2" />
-                          Eliminar
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Edad:</span>
-                      <span className="font-medium">{calcularEdad(jugador.fechaNacimiento)} años</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Posición:</span>
-                      <span className="font-medium">{getPosicionNombre(jugador.posicionPrincipal)}</span>
-                    </div>
-                    {jugador.posicionSecundaria && (
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="space-y-2">
                       <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Pos. Secundaria:</span>
-                        <span className="font-medium">{getPosicionNombre(jugador.posicionSecundaria)}</span>
+                        <span className="text-gray-500">Edad:</span>
+                        <span className="font-medium">{calcularEdad(jugador.fechaNacimiento)} años</span>
                       </div>
-                    )}
-                    {jugador.altura && (
                       <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Altura:</span>
-                        <span className="font-medium">{jugador.altura} cm</span>
+                        <span className="text-gray-500">Posición:</span>
+                        <span className="font-medium">{getPosicionNombre(jugador.posicionPrincipal)}</span>
                       </div>
-                    )}
-                    {jugador.peso && (
+                      {jugador.posicionSecundaria && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-500">Pos. Secundaria:</span>
+                          <span className="font-medium">{getPosicionNombre(jugador.posicionSecundaria)}</span>
+                        </div>
+                      )}
+                      {jugador.altura && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-500">Altura:</span>
+                          <span className="font-medium">{jugador.altura} cm</span>
+                        </div>
+                      )}
+                      {jugador.peso && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-500">Peso:</span>
+                          <span className="font-medium">{jugador.peso} kg</span>
+                        </div>
+                      )}
                       <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Peso:</span>
-                        <span className="font-medium">{jugador.peso} kg</span>
+                        <span className="text-gray-500">Usuario:</span>
+                        <span className="font-medium">{jugador.username}</span>
                       </div>
-                    )}
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Usuario:</span>
-                      <span className="font-medium">{jugador.username}</span>
                     </div>
-                  </div>
-                  <div className="pt-2 border-t">
-                    <p className="text-xs text-gray-500">Creado: {jugador.fechaCreacion.toLocaleDateString()}</p>
-                    <p className="text-xs text-gray-500">Por: {jugador.creadoPor}</p>
-                    {jugador.needsActivation && (
-                      <p className="text-xs text-orange-600 mt-1">
-                        Se activará automáticamente en el primer login del jugador
-                      </p>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                    <div className="pt-2 border-t">
+                      <p className="text-xs text-gray-500">Creado: {jugador.fechaCreacion.toLocaleDateString()}</p>
+                      <p className="text-xs text-gray-500">Por: {jugador.creadoPor}</p>
+                      {jugador.needsActivation && (
+                        <p className="text-xs text-orange-600 mt-1">
+                          Se activará automáticamente en el primer login del jugador
+                        </p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
           </div>
         )}
       </div>

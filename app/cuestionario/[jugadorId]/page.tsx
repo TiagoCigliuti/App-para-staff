@@ -62,13 +62,14 @@ export default function PlayerActionsPage() {
           return
         }
         const data = jugadorSnap.data() as any
+
         const j: Jugador = {
           id: jugadorSnap.id,
           nombre: data.nombre,
           apellido: data.apellido,
           displayName: data.displayName,
           email: data.email,
-          photoURL: data.photoURL || data.fotoUrl,
+          photoURL: data.fotoUrl || data.foto || data.photoURL,
           clienteId: data.clienteId,
           estado: data.estado || (data.activo ? "activo" : "inactivo"),
           uid: data.uid,
@@ -141,7 +142,12 @@ export default function PlayerActionsPage() {
           <CardHeader className="flex flex-row items-center gap-4">
             <Avatar className="h-12 w-12">
               {jugador?.photoURL ? (
-                <AvatarImage src={jugador.photoURL || "/placeholder.svg"} alt="Foto jugador" />
+                <AvatarImage
+                  src={jugador.photoURL || "/placeholder.svg"}
+                  alt="Foto jugador"
+                  referrerPolicy="no-referrer"
+                  crossOrigin="anonymous"
+                />
               ) : (
                 <AvatarFallback>{initials(`${jugador?.nombre || ""} ${jugador?.apellido || ""}`)}</AvatarFallback>
               )}
