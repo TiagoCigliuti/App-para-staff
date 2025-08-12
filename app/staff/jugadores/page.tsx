@@ -1120,7 +1120,6 @@ export default function JugadoresPage() {
                   setShowSugerenciasPrincipal(false)
                   setShowSugerenciasSecundaria(false)
                 }}
-                disabled={!firestoreConnected || !firestoreWriteEnabled}
               >
                 <Plus className="w-4 h-4 mr-2" />
                 Nuevo Jugador
@@ -1500,10 +1499,7 @@ export default function JugadoresPage() {
               <p className="text-gray-500 text-center mb-6">
                 Comienza creando tu primer jugador para gestionar el equipo.
               </p>
-              <Button
-                onClick={() => setShowCreateDialog(true)}
-                disabled={!firestoreConnected && !firestoreWriteEnabled}
-              >
+              <Button onClick={() => setShowCreateDialog(true)}>
                 <Plus className="w-4 h-4 mr-2" />
                 Crear Primer Jugador
               </Button>
