@@ -4,11 +4,21 @@ import type React from "react"
 import { useAuth } from "@/components/auth/AuthProvider"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
-import { collection, query, where, getDocs } from "firebase/firestore"
+import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebaseConfig"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, RefreshCw } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { User, LogOut } from "lucide-react"
+import { signOut } from "firebase/auth"
+import { auth } from "@/lib/firebaseConfig"
 
 // Componente Badge personalizado con colores adicionales
 const CustomBadge = ({
@@ -64,13 +74,19 @@ interface DatosJugador {
   percepcion: RespuestaPercepcion | null
 }
 
+interface Cliente {
+  id: string
+  nombre: string
+  club?: string
+}
+
 function obtenerFechaHoy() {
   const hoy = new Date()
   return hoy.toISOString().split("T")[0]
 }
 
 const obtenerIniciales = (email: string) => {
-  const partes = email.split('@')[0].split('.')
+  const partes = email.split("@")[0].split(".")
   if (partes.length >= 2) {
     return (partes[0][0] + partes[1][0]).toUpperCase()
   }
@@ -128,6 +144,9 @@ export default function CargaInternaPage() {
     return hoy.toISOString().split("T")[0]
   })
 
+  const [cliente, setCliente] = useState<Cliente | null>(null)
+  const [loadingCliente, setLoadingCliente] = useState(true)
+
   useEffect(() => {
     if (!loading && !user) {
       router.push("/login")
@@ -139,6 +158,53 @@ export default function CargaInternaPage() {
       cargarDatosJugadores()
     }
   }, [user, fechaSeleccionada])
+
+  const loadClienteData = async (clienteId: string) => {
+    try {
+      setLoadingCliente(true)
+      const clienteRef = doc(db, "clientes", clienteId)
+      const clienteSnap = await getDoc(clienteRef)
+
+      if (clienteSnap.exists()) {
+        const clienteData = clienteSnap.data()
+        setCliente({
+          id: clienteSnap.id,
+          nombre: clienteData.nombre || "Cliente",
+          club: clienteData.club,
+        })
+      }
+    } catch (error) {
+      console.error("Error cargando datos del cliente:", error)
+    } finally {
+      setLoadingCliente(false)
+    }
+  }
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth)
+      router.push("/login")
+    } catch (error) {
+      console.error("Error al cerrar sesión:", error)
+    }
+  }
+
+  const getUserInitials = () => {
+    if (user?.displayName) {
+      const names = user.displayName.trim().split(" ")
+      if (names.length >= 2) {
+        return `${names[0][0]}${names[names.length - 1][0]}`.toUpperCase()
+      }
+      return names[0][0]?.toUpperCase() || "U"
+    }
+    return user?.email?.[0]?.toUpperCase() || "U"
+  }
+
+  useEffect(() => {
+    if (clienteId) {
+      loadClienteData(clienteId)
+    }
+  }, [clienteId])
 
   const cargarDatosJugadores = async () => {
     try {
@@ -460,35 +526,35 @@ export default function CargaInternaPage() {
   }
 
   if (error) {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <Card className="w-full max-w-2xl">
-        <CardContent className="pt-6">
-          <div className="text-center">
-            <div className="text-red-500 text-xl mb-2">⚠️</div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Error de Conexión</h3>
-            <p className="text-gray-600 mb-4 text-sm">{error}</p>
-            <div className="space-y-2">
-              <button
-                onClick={cargarDatosJugadores}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 mr-2"
-              >
-                Reintentar
-              </button>
-              <p className="text-xs text-gray-500 mt-4">Posibles soluciones:</p>
-              <ul className="list-disc list-inside text-left mt-2 space-y-1">
-                <li>Verificar que las reglas de Firestore permitan lectura</li>
-                <li>Confirmar que el usuario staff tenga clienteId asignado en la colección "staff"</li>
-                <li>Revisar que existan jugadores con el mismo clienteId</li>
-                <li>Verificar la conexión a internet</li>
-              </ul>
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Card className="w-full max-w-2xl">
+          <CardContent className="pt-6">
+            <div className="text-center">
+              <div className="text-red-500 text-xl mb-2">⚠️</div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Error de Conexión</h3>
+              <p className="text-gray-600 mb-4 text-sm">{error}</p>
+              <div className="space-y-2">
+                <button
+                  onClick={cargarDatosJugadores}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 mr-2"
+                >
+                  Reintentar
+                </button>
+                <p className="text-xs text-gray-500 mt-4">Posibles soluciones:</p>
+                <ul className="list-disc list-inside text-left mt-2 space-y-1">
+                  <li>Verificar que las reglas de Firestore permitan lectura</li>
+                  <li>Confirmar que el usuario staff tenga clienteId asignado en la colección "staff"</li>
+                  <li>Revisar que existan jugadores con el mismo clienteId</li>
+                  <li>Verificar la conexión a internet</li>
+                </ul>
+              </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -506,47 +572,67 @@ export default function CargaInternaPage() {
               <h1 className="text-2xl font-bold text-gray-900">Gestión de Carga Interna</h1>
               <div className="flex items-center gap-4">
                 <p className="text-sm text-gray-600">
-                  Monitoreo diario del bienestar y percepción del esfuerzo • {clienteId || 'Cliente'}
+                  {loadingCliente ? "Cargando..." : cliente?.club || cliente?.nombre || "Club"}
                 </p>
-                <div className="flex items-center gap-2">
-                  <label htmlFor="fecha" className="text-sm text-gray-600">Fecha:</label>
-                  <input
-                    id="fecha"
-                    type="date"
-                    value={fechaSeleccionada}
-                    onChange={(e) => setFechaSeleccionada(e.target.value)}
-                    className="px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center space-x-4">
             <span className="text-sm text-gray-600">Staff</span>
-            <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
-              <span className="text-white text-sm font-semibold">
-                {user?.email ? obtenerIniciales(user.email) : 'PP'}
-              </span>
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold text-sm hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                  {getUserInitials()}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <div className="px-3 py-2">
+                  <p className="text-sm font-medium">{user?.displayName || "Usuario"}</p>
+                  <p className="text-xs text-gray-500">{user?.email}</p>
+                  {cliente && <p className="text-xs text-gray-500">Cliente: {cliente.nombre}</p>}
+                </div>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => router.push("/staff/perfil")}>
+                  <User className="w-4 h-4 mr-2" />
+                  Editar Perfil
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleLogout} className="text-red-600 focus:text-red-600">
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Cerrar Sesión
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>
 
       <div className="p-6">
         <div className="max-w-7xl mx-auto">
+          <div className="mb-6 flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <label htmlFor="fecha" className="text-sm font-medium text-gray-700">
+                Fecha:
+              </label>
+              <input
+                id="fecha"
+                type="date"
+                value={fechaSeleccionada}
+                onChange={(e) => setFechaSeleccionada(e.target.value)}
+                className="px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <button
+              onClick={cargarDatosJugadores}
+              className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              disabled={loadingData}
+            >
+              <RefreshCw className={`h-4 w-4 ${loadingData ? "animate-spin" : ""}`} />
+              {loadingData ? "Actualizando..." : "Actualizar"}
+            </button>
+          </div>
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Estado de los Jugadores - {fechaSeleccionada}</span>
-                <button
-                  onClick={cargarDatosJugadores}
-                  className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                  disabled={loadingData}
-                >
-                  {loadingData ? "Cargando..." : "Actualizar"}
-                </button>
-              </CardTitle>
-            </CardHeader>
+            <CardHeader></CardHeader>
             <CardContent>
               {datosJugadores.length === 0 ? (
                 <div className="text-center py-8">
@@ -568,6 +654,7 @@ export default function CargaInternaPage() {
                         <th className="text-center p-3 font-semibold">Dolor Muscular</th>
                         <th className="text-center p-3 font-semibold">Tipo de Dolor</th>
                         <th className="text-center p-3 font-semibold">Zona</th>
+                        <th className="text-center p-3 font-semibold">Comentarios Wellness</th>
                         <th className="text-center p-3 font-semibold">RPE</th>
                         <th className="text-center p-3 font-semibold">Comentarios RPE</th>
                       </tr>
@@ -580,7 +667,6 @@ export default function CargaInternaPage() {
                               <div className="font-medium text-gray-900">
                                 {datos.jugador.nombre} {datos.jugador.apellido}
                               </div>
-                              <div className="text-sm text-gray-500">{datos.jugador.email}</div>
                             </div>
                           </td>
                           <td className="p-3 text-center">
@@ -652,6 +738,18 @@ export default function CargaInternaPage() {
                                 title={String(obtenerValorBienestar(datos.bienestar, "zonaDolorMuscular"))}
                               >
                                 {obtenerValorBienestar(datos.bienestar, "zonaDolorMuscular")}
+                              </div>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="p-3 text-center max-w-xs">
+                            {obtenerValorBienestar(datos.bienestar, "comentarios") ? (
+                              <div
+                                className="text-sm text-gray-600 truncate"
+                                title={String(obtenerValorBienestar(datos.bienestar, "comentarios"))}
+                              >
+                                {obtenerValorBienestar(datos.bienestar, "comentarios")}
                               </div>
                             ) : (
                               <span className="text-gray-400">-</span>
