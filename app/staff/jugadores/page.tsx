@@ -53,6 +53,7 @@ import { signOut } from "firebase/auth"
 
 import { storage } from "@/lib/firebaseConfig"
 import { ref, uploadString, getDownloadURL } from "firebase/storage"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 interface StaffUser {
   id: string
@@ -1016,6 +1017,15 @@ export default function JugadoresPage() {
     )
   }
 
+  const initialsFrom = (nombre?: string, apellido?: string, displayName?: string, email?: string) => {
+    const base =
+      [nombre, apellido].filter(Boolean).join(" ").trim() || (displayName || "").trim() || (email || "").trim() || "U"
+    const parts = base.split(/\s+/).filter(Boolean)
+    const first = parts[0]?.[0] ?? "U"
+    const last = parts.length > 1 ? parts[parts.length - 1][0] : ""
+    return (first + last).toUpperCase()
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -1510,20 +1520,24 @@ export default function JugadoresPage() {
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between">
                       <div className="flex items-center space-x-3">
-                        <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                          {jugador.fotoUrl ? (
-                            <img
-                              src={jugador.fotoUrl || "/placeholder.svg"}
-                              alt={`Foto de ${jugador.nombreVisualizacion}`}
-                              className="w-12 h-12 rounded-full object-cover"
-                            />
-                          ) : (
-                            <span className="text-green-600 font-semibold text-lg">
-                              {jugador.nombre[0]}
-                              {jugador.apellido[0]}
-                            </span>
-                          )}
-                        </div>
+                        {(() => {
+                          const initials = initialsFrom(
+                            jugador.nombre,
+                            jugador.apellido,
+                            jugador.nombreVisualizacion,
+                            jugador.email,
+                          )
+                          return (
+                            <Avatar className="h-12 w-12 overflow-hidden rounded-full ring-1 ring-border">
+                              <AvatarImage
+                                src={jugador.fotoUrl || undefined}
+                                alt={`Foto de ${jugador.nombreVisualizacion}`}
+                                className="h-full w-full object-cover"
+                              />
+                              <AvatarFallback className="font-semibold">{initials}</AvatarFallback>
+                            </Avatar>
+                          )
+                        })()}
                         <div>
                           <CardTitle className="text-lg">{jugador.nombreVisualizacion}</CardTitle>
                           <p className="text-sm text-gray-600">

@@ -5,26 +5,26 @@ import type React from "react"
 import { useState, useEffect, useMemo } from "react"
 import { useAuth } from "@/components/auth/AuthProvider"
 import { useRouter } from "next/navigation"
-import {
-  collection,
-  onSnapshot,
-  addDoc,
-  deleteDoc,
-  doc,
-  updateDoc,
-  query,
-  where,
-} from "firebase/firestore"
+import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc, query, where, getDocs } from "firebase/firestore"
 import { db } from "@/lib/firebaseConfig"
 import { onAuthStateChanged } from "firebase/auth"
 import { auth } from "@/lib/firebaseConfig"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { ArrowLeft, Plus, Calendar, Edit, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { ArrowLeft, Plus, Calendar, Edit, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { User, LogOut } from "lucide-react"
+import { signOut } from "firebase/auth"
 
 interface Actividad {
   id?: string
@@ -43,6 +43,12 @@ interface UserData {
   email: string
   firstName?: string
   lastName?: string
+}
+
+interface Cliente {
+  id: string
+  nombre: string
+  club?: string
 }
 
 const diasSemana = [
@@ -84,6 +90,8 @@ export default function CalendarioPage() {
   const [currentWeek, setCurrentWeek] = useState(new Date())
   const [userData, setUserData] = useState<UserData | null>(null)
   const [loadingUserData, setLoadingUserData] = useState(true)
+  const [cliente, setCliente] = useState<Cliente | null>(null)
+  const [loadingCliente, setLoadingCliente] = useState(true)
 
   const [formData, setFormData] = useState({
     titulo: "",
@@ -189,12 +197,58 @@ export default function CalendarioPage() {
     }
   }
 
+  // Función para cargar datos del cliente
+  const loadClienteData = async (clienteId: string) => {
+    try {
+      setLoadingCliente(true)
+
+      const clientesRef = collection(db, "clientes")
+      const clienteQuery = query(clientesRef, where("id", "==", clienteId))
+      const clienteSnapshot = await getDocs(clienteQuery)
+
+      if (!clienteSnapshot.empty) {
+        const clienteDoc = clienteSnapshot.docs[0].data() as any
+        setCliente({
+          id: clienteDoc.id,
+          nombre: clienteDoc.nombre || "",
+          club: clienteDoc.club || "",
+        })
+      } else {
+        // Si no se encuentra por id, buscar por el documento con ese ID
+        const clienteDocRef = doc(db, "clientes", clienteId)
+        const clienteDocSnapshot = await getDocs(query(collection(db, "clientes")))
+
+        const foundCliente = clienteDocSnapshot.docs.find((doc) => doc.id === clienteId)
+        if (foundCliente) {
+          const clienteData = foundCliente.data() as any
+          setCliente({
+            id: foundCliente.id,
+            nombre: clienteData.nombre || "",
+            club: clienteData.club || "",
+          })
+        }
+      }
+
+      setLoadingCliente(false)
+    } catch (err: any) {
+      console.error("Error cargando datos del cliente:", err)
+      setLoadingCliente(false)
+    }
+  }
+
   // Cargar userData solo cuando Auth está listo y hay user
   useEffect(() => {
     if (authReady && user) {
       loadUserData()
     }
   }, [authReady, user])
+
+  // Cargar datos del cliente cuando tenemos userData
+  useEffect(() => {
+    if (userData?.clienteId) {
+      loadClienteData(userData.clienteId)
+    }
+  }, [userData?.clienteId])
 
   // Cálculo de semana (lunes a domingo)
   const getMondayOfWeek = (date: Date) => {
@@ -232,11 +286,7 @@ export default function CalendarioPage() {
     const actividadesRef = collection(db, `calendario/${userData.clienteId}/actividades`)
 
     // Filtramos por rango de la semana en el servidor (fecha es YYYY-MM-DD)
-    const q = query(
-      actividadesRef,
-      where("fecha", ">=", startDate),
-      where("fecha", "<=", endDate),
-    )
+    const q = query(actividadesRef, where("fecha", ">=", startDate), where("fecha", "<=", endDate))
 
     const unsubscribe = onSnapshot(
       q,
@@ -250,7 +300,9 @@ export default function CalendarioPage() {
             fecha: data.fecha || "",
             clienteId: data.clienteId || "",
             creadoPor: data.creadoPor || "",
-            fechaCreacion: data.fechaCreacion ? new Date(data.fechaCreacion.toDate?.() ?? data.fechaCreacion) : new Date(),
+            fechaCreacion: data.fechaCreacion
+              ? new Date(data.fechaCreacion.toDate?.() ?? data.fechaCreacion)
+              : new Date(),
           }
           return item
         })
@@ -272,7 +324,7 @@ export default function CalendarioPage() {
           setError(`Error cargando actividades: ${err?.message ?? "desconocido"}`)
         }
         setLoadingData(false)
-      }
+      },
     )
 
     return () => unsubscribe()
@@ -363,6 +415,26 @@ export default function CalendarioPage() {
     return day === 0 || day === 6
   }
 
+  const getUserInitials = () => {
+    if (user?.displayName) {
+      const names = user.displayName.trim().split(" ")
+      if (names.length >= 2) {
+        return `${names[0][0]}${names[names.length - 1][0]}`.toUpperCase()
+      }
+      return names[0][0]?.toUpperCase() || "U"
+    }
+    return user?.email?.[0]?.toUpperCase() || "U"
+  }
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth)
+      router.push("/login")
+    } catch (error) {
+      console.error("Error al cerrar sesión:", error)
+    }
+  }
+
   if (loading || loadingUserData || loadingData) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -372,8 +444,8 @@ export default function CalendarioPage() {
             {loading
               ? "Verificando autenticación..."
               : loadingUserData
-              ? "Cargando datos del usuario..."
-              : "Cargando calendario..."}
+                ? "Cargando datos del usuario..."
+                : "Cargando calendario..."}
           </p>
         </div>
       </div>
@@ -385,7 +457,7 @@ export default function CalendarioPage() {
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between py-6">
+          <div className="flex justify-between items-center py-6">
             <div className="flex items-center">
               <Button variant="ghost" onClick={() => router.push("/staff")} className="mr-4">
                 <ArrowLeft className="w-4 h-4 mr-2" />
@@ -394,83 +466,36 @@ export default function CalendarioPage() {
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">Calendario Semanal</h1>
                 <p className="text-gray-600 mt-1">
-                  Gestiona entrenamientos, partidos y eventos
-                  {userData && (
-                    <span className="ml-2 text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                      Cliente: {userData.clienteId}
-                    </span>
-                  )}
+                  {loadingCliente ? "Cargando..." : cliente?.club || cliente?.nombre || "Sin información del club"}
                 </p>
               </div>
             </div>
-
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <Button className="bg-blue-600 hover:bg-blue-700">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Nueva Actividad
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-md">
-                <DialogHeader>
-                  <DialogTitle>{editingActividad ? "Editar Actividad" : "Nueva Actividad"}</DialogTitle>
-                </DialogHeader>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <div>
-                    <Label htmlFor="titulo">Actividad</Label>
-                    <Input
-                      id="titulo"
-                      value={formData.titulo}
-                      onChange={(e) => setFormData({ ...formData, titulo: e.target.value })}
-                      placeholder="Ej: Entrenamiento de fútbol, Partido vs Rival, Reunión técnica"
-                      required
-                    />
+            <div className="flex items-center space-x-4">
+              <span className="text-sm text-gray-600">Staff</span>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold text-sm hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                    {getUserInitials()}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <div className="px-3 py-2">
+                    <p className="text-sm font-medium">{user?.displayName || "Usuario"}</p>
+                    <p className="text-xs text-gray-500">{user?.email}</p>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="fecha">Fecha</Label>
-                      <Input
-                        id="fecha"
-                        type="date"
-                        value={formData.fecha}
-                        onChange={(e) => setFormData({ ...formData, fecha: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="hora">Horario</Label>
-                      <Input
-                        id="hora"
-                        type="time"
-                        value={formData.hora}
-                        onChange={(e) => setFormData({ ...formData, hora: e.target.value })}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2 pt-4">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        setDialogOpen(false)
-                        setEditingActividad(null)
-                        setSelectedDate("")
-                        setFormData({ titulo: "", hora: "", fecha: "" })
-                      }}
-                      className="flex-1"
-                    >
-                      Cancelar
-                    </Button>
-                    <Button type="submit" className="flex-1">
-                      {editingActividad ? "Actualizar" : "Crear"}
-                    </Button>
-                  </div>
-                </form>
-              </DialogContent>
-            </Dialog>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => router.push("/staff/perfil")}>
+                    <User className="w-4 h-4 mr-2" />
+                    Editar Perfil
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleLogout} className="text-red-600 focus:text-red-600">
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Cerrar Sesión
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         </div>
       </div>
@@ -512,6 +537,68 @@ export default function CalendarioPage() {
         </div>
 
         {/* Vista de calendario semanal - 7 días */}
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>{editingActividad ? "Editar Actividad" : "Nueva Actividad"}</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <Label htmlFor="titulo">Actividad</Label>
+                <Input
+                  id="titulo"
+                  value={formData.titulo}
+                  onChange={(e) => setFormData({ ...formData, titulo: e.target.value })}
+                  placeholder="Ej: Entrenamiento de fútbol, Partido vs Rival, Reunión técnica"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="fecha">Fecha</Label>
+                  <Input
+                    id="fecha"
+                    type="date"
+                    value={formData.fecha}
+                    onChange={(e) => setFormData({ ...formData, fecha: e.target.value })}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="hora">Horario</Label>
+                  <Input
+                    id="hora"
+                    type="time"
+                    value={formData.hora}
+                    onChange={(e) => setFormData({ ...formData, hora: e.target.value })}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setDialogOpen(false)
+                    setEditingActividad(null)
+                    setSelectedDate("")
+                    setFormData({ titulo: "", hora: "", fecha: "" })
+                  }}
+                  className="flex-1"
+                >
+                  Cancelar
+                </Button>
+                <Button type="submit" className="flex-1">
+                  {editingActividad ? "Actualizar" : "Crear"}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+
         <div className="grid grid-cols-7 gap-4">
           {weekDates.map((date, index) => {
             const fechaString = getLocalDateString(date)

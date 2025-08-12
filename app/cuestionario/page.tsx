@@ -34,6 +34,15 @@ type Jugador = {
   imageUrl?: string
 }
 
+const initialsFrom = (nombre?: string, apellido?: string, displayName?: string, email?: string) => {
+  const base =
+    [nombre, apellido].filter(Boolean).join(" ").trim() || (displayName || "").trim() || (email || "").trim() || "U"
+  const parts = base.split(/\s+/).filter(Boolean)
+  const first = parts[0]?.[0] ?? "U"
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : ""
+  return (first + last).toUpperCase()
+}
+
 // utils
 function localDateKey(d = new Date()) {
   const y = d.getFullYear()
@@ -300,6 +309,7 @@ export default function CuestionarioPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {sortedJugadores.map((j) => {
               const nombre = displayNameOf(j)
+              const initials = initialsFrom(j.nombre, j.apellido, j.displayName, j.email)
               const photo = photoUrls[j.id] ?? pickPhotoPath(j)
               const completoBienestar = !!doneBienestar[j.id]
               const completoRpe = !!doneRpe[j.id]
@@ -308,20 +318,13 @@ export default function CuestionarioPage() {
               return (
                 <Card key={j.id} className="flex flex-col">
                   <CardHeader className="flex flex-row items-center gap-3">
-                    <Avatar className="h-12 w-12 ring-1 ring-border">
+                    <Avatar className="h-12 w-12 overflow-hidden rounded-full ring-1 ring-border">
                       <AvatarImage
-                        src={photo ?? "/placeholder.svg?height=96&width=96&query=jugador%20avatar%20placeholder"}
+                        src={photo || undefined}
                         alt={`Foto de ${nombre}`}
+                        className="h-full w-full object-cover"
                       />
-                      <AvatarFallback className="font-medium">
-                        {nombre
-                          .split(" ")
-                          .filter(Boolean)
-                          .slice(0, 2)
-                          .map((p) => p[0])
-                          .join("")
-                          .toUpperCase()}
-                      </AvatarFallback>
+                      <AvatarFallback className="font-medium">{initials}</AvatarFallback>
                     </Avatar>
                     <div className="flex-1 min-w-0">
                       <CardTitle className="text-base truncate">{nombre}</CardTitle>
