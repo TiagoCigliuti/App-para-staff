@@ -4,18 +4,7 @@ import type React from "react"
 import { useAuth } from "@/components/auth/AuthProvider"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
-import {
-  collection,
-  addDoc,
-  getDocs,
-  doc,
-  updateDoc,
-  deleteDoc,
-  query,
-  where,
-  getDoc,
-  setDoc,
-} from "firebase/firestore"
+import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where, getDoc } from "firebase/firestore"
 import { auth, db } from "@/lib/firebaseConfig"
 import { signOut } from "firebase/auth"
 import { Button } from "@/components/ui/button"
@@ -39,7 +28,21 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { ArrowLeft, Plus, MoreVertical, Edit, Trash2, User, LogOut, Trophy, Calendar, Clock, MapPin, Users, AlertCircle } from 'lucide-react'
+import {
+  ArrowLeft,
+  Plus,
+  MoreVertical,
+  Edit,
+  Trash2,
+  User,
+  LogOut,
+  Trophy,
+  Calendar,
+  Clock,
+  MapPin,
+  Users,
+  AlertCircle,
+} from "lucide-react"
 
 interface StaffUser {
   id: string
@@ -79,14 +82,14 @@ interface Partido {
 // Función para formatear fecha sin problemas de zona horaria
 const formatDateForInput = (date: Date): string => {
   const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
   return `${year}-${month}-${day}`
 }
 
 // Función para crear fecha local sin problemas de zona horaria
 const createLocalDate = (dateString: string): Date => {
-  const [year, month, day] = dateString.split('-').map(Number)
+  const [year, month, day] = dateString.split("-").map(Number)
   return new Date(year, month - 1, day)
 }
 
@@ -299,11 +302,25 @@ export default function PartidosPage() {
         const partidosQuery = query(partidosRef, where("clienteId", "==", cliente.id))
         const partidosSnapshot = await getDocs(partidosQuery)
 
-        const partidosData = partidosSnapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-          fechaCreacion: doc.data().fechaCreacion?.toDate() || new Date(),
-        })) as Partido[]
+        const partidosData = partidosSnapshot.docs.map((docSnapshot) => {
+          const data = docSnapshot.data()
+          return {
+            id: docSnapshot.id, // Usar el ID del documento de Firestore
+            torneo: data.torneo || "",
+            jornada: data.jornada || "",
+            rival: data.rival || "",
+            fecha: data.fecha || "",
+            horario: data.horario || "",
+            estadio: data.estadio || "",
+            clienteId: data.clienteId || "",
+            clienteNombre: data.clienteNombre || "",
+            estado: data.estado || "programado",
+            fechaCreacion: data.fechaCreacion?.toDate() || new Date(),
+            creadoPor: data.creadoPor || "",
+            resultado: data.resultado || "",
+            observaciones: data.observaciones || "",
+          } as Partido
+        })
 
         // Sort the data in JavaScript instead of Firestore
         partidosData.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())
@@ -591,12 +608,122 @@ export default function PartidosPage() {
 
       if (editingPartido) {
         // Actualizar partido existente
-        await updateDoc(doc(db, "partidos", editingPartido.id), partidoData)
-        console.log("✅ Partido actualizado en Firestore:", editingPartido.id)
+        console.log("🔄 Actualizando partido:", editingPartido.id)
+
+        try {
+          // Verificar que tenemos un ID válido
+          if (!editingPartido.id || editingPartido.id.trim() === "") {
+            throw new Error("ID de partido inválido")
+          }
+
+          // Preparar datos de actualización (sin el campo 'id')
+          const updateData = {
+            torneo: formData.torneo,
+            jornada: formData.jornada,
+            rival: formData.rival,
+            fecha: formData.fecha,
+            horario: formData.horario,
+            estadio: formData.estadio,
+            estado: formData.estado,
+            resultado: formData.resultado || null,
+            observaciones: formData.observaciones || null,
+            fechaActualizacion: new Date(),
+            actualizadoPor: user?.email || "unknown",
+            clienteId: cliente?.id || "",
+            clienteNombre: cliente?.nombre || "",
+          }
+
+          console.log("📊 Datos a actualizar:", updateData)
+          console.log("🔑 ID del documento:", editingPartido.id)
+          console.log("👤 Usuario actual:", user?.email)
+
+          // Crear referencia correcta al documento
+          const partidoRef = doc(db, "partidos", editingPartido.id)
+
+          // Actualizar en Firestore
+          await updateDoc(partidoRef, updateData)
+          console.log("✅ Partido actualizado exitosamente en Firestore")
+
+          // Actualizar estado local con el partido completo
+          const partidoActualizado = {
+            ...editingPartido,
+            ...updateData,
+            id: editingPartido.id, // Mantener el ID original
+            fechaCreacion: editingPartido.fechaCreacion, // Mantener fecha de creación original
+          }
+
+          const partidosActualizados = partidos.map((partido) =>
+            partido.id === editingPartido.id ? partidoActualizado : partido,
+          )
+
+          setPartidos(partidosActualizados)
+
+          // Actualizar localStorage
+          localStorage.setItem(`partidos_${cliente?.id}`, JSON.stringify(partidosActualizados))
+
+          // Sincronizar con calendario
+          await syncPartidoWithCalendar(partidoActualizado, "update")
+
+          setFormSuccess("Partido actualizado exitosamente")
+        } catch (error: any) {
+          console.error("❌ Error detallado actualizando partido:", error)
+          console.error("❌ Código de error:", error.code)
+          console.error("❌ Mensaje:", error.message)
+
+          if (error.code === "permission-denied") {
+            setFormError("Error de permisos: Verifica que las reglas de Firestore estén actualizadas")
+          } else if (error.code === "not-found") {
+            setFormError("El partido no existe o fue eliminado")
+          } else if (error.message.includes("Invalid document reference")) {
+            setFormError("Error de referencia del documento. Intenta recargar la página.")
+          } else {
+            setFormError(`Error al actualizar el partido: ${error.message}`)
+          }
+          setFormLoading(false)
+          return
+        }
       } else {
         // Crear nuevo partido
-        const newPartidoRef = await addDoc(collection(db, "partidos"), partidoData)
-        console.log("✅ Partido creado en Firestore:", newPartidoRef.id)
+        try {
+          const newPartidoData = {
+            torneo: formData.torneo,
+            jornada: formData.jornada,
+            rival: formData.rival,
+            fecha: formData.fecha,
+            horario: formData.horario,
+            estadio: formData.estadio,
+            estado: formData.estado,
+            resultado: formData.resultado || null,
+            observaciones: formData.observaciones || null,
+            clienteId: cliente?.id || "",
+            clienteNombre: cliente?.nombre || "",
+            fechaCreacion: new Date(),
+            creadoPor: user?.email || "",
+          }
+
+          const newPartidoRef = await addDoc(collection(db, "partidos"), newPartidoData)
+          console.log("✅ Partido creado en Firestore:", newPartidoRef.id)
+
+          // Agregar el nuevo partido al estado local
+          const nuevoPartido = {
+            ...newPartidoData,
+            id: newPartidoRef.id,
+          }
+
+          const partidosActualizados = [...partidos, nuevoPartido]
+          setPartidos(partidosActualizados)
+          localStorage.setItem(`partidos_${cliente?.id}`, JSON.stringify(partidosActualizados))
+
+          // Sincronizar con calendario
+          await syncPartidoWithCalendar(nuevoPartido, "create")
+
+          setFormSuccess("Partido creado exitosamente")
+        } catch (error: any) {
+          console.error("❌ Error creando partido:", error)
+          setFormError(`Error al crear el partido: ${error.message}`)
+          setFormLoading(false)
+          return
+        }
       }
 
       // Actualizar partidos en estado

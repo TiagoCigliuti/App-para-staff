@@ -22,26 +22,33 @@ export const testFirestoreConnection = async () => {
   try {
     console.log("🔄 Probando conexión a Firestore...")
 
-    // En lugar de crear un documento, intentamos leer una colección
-    // Esto requiere menos permisos
+    // Intentar una operación simple de lectura
     const testCollection = collection(db, "jugadores")
     const testQuery = query(testCollection, limit(1))
 
-    // Intentar hacer una consulta simple
-    await getDocs(testQuery)
+    // Intentar hacer una consulta simple con timeout
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout de conexión")), 10000))
+
+    const queryPromise = getDocs(testQuery)
+
+    await Promise.race([queryPromise, timeoutPromise])
 
     console.log("✅ Conexión a Firestore exitosa")
-    return true
+    return { success: true, message: "Conexión exitosa" }
   } catch (error: any) {
     console.error("❌ Error conectando a Firestore:", error.message)
 
     // Si es un error de permisos, aún podemos intentar operaciones específicas
     if (error.code === "permission-denied") {
       console.log("⚠️ Permisos limitados, pero Firestore está disponible")
-      return true // Consideramos que está conectado pero con permisos limitados
+      return { success: true, message: "Conexión con permisos limitados" }
     }
 
-    return false
+    if (error.message === "Timeout de conexión") {
+      return { success: false, message: "Timeout de conexión a Firestore" }
+    }
+
+    return { success: false, message: error.message }
   }
 }
 
@@ -130,40 +137,43 @@ export const testFirestoreWrite = async () => {
   try {
     console.log("🔄 Probando permisos de escritura en Firestore...")
 
-    // En lugar de crear un documento en una colección de prueba,
-    // intentemos escribir en una colección que sabemos que existe y tiene permisos
-    const jugadoresCollection = collection(db, "jugadores")
-    const testDoc = doc(jugadoresCollection, "test_write_" + Date.now())
+    // Crear un documento de prueba con ID único
+    const testDocId = "test_write_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9)
+    const testDocRef = doc(db, "test-permissions", testDocId)
 
-    // Intentar crear un documento temporal en jugadores
-    await setDoc(testDoc, {
+    // Intentar crear un documento temporal
+    await setDoc(testDocRef, {
       test: true,
       timestamp: new Date(),
       testType: "write_permission_check",
+      uid: auth.currentUser?.uid || "anonymous",
     })
 
-    // Si llegamos aquí, los permisos funcionan
     console.log("✅ Permisos de escritura confirmados")
 
     // Limpiar el documento de prueba
     try {
-      await deleteDoc(testDoc)
+      await deleteDoc(testDocRef)
       console.log("✅ Documento de prueba eliminado")
     } catch (deleteError) {
       console.log("⚠️ No se pudo eliminar documento de prueba:", deleteError)
     }
 
-    return true
+    return { success: true, message: "Permisos de escritura confirmados" }
   } catch (error: any) {
     console.error("❌ Error en permisos de escritura:", error.message)
+    console.error("❌ Código de error:", error.code)
 
-    // Si es un error de permisos específico, aún podemos intentar operaciones de lectura
     if (error.code === "permission-denied") {
-      console.log("⚠️ Sin permisos de escritura, pero la conexión funciona")
-      return false
+      console.error("❌ PERMISOS DENEGADOS: Verifica las reglas de Firestore")
+      return { success: false, message: "Permisos de escritura denegados" }
     }
 
-    return false
+    if (error.code === "unavailable") {
+      return { success: false, message: "Servicio Firestore no disponible" }
+    }
+
+    return { success: false, message: error.message }
   }
 }
 
@@ -336,8 +346,7 @@ export const createJugadorWithoutLogin = async (jugadorData: any, password: stri
     const cred = await createUserWithEmailAndPassword(secondaryAuth, jugadorData.email, password)
     await updateProfile(cred.user, {
       displayName:
-        jugadorData.nombreVisualizacion ||
-        `${jugadorData.nombre || ""} ${jugadorData.apellido || ""}`.trim(),
+        jugadorData.nombreVisualizacion || `${jugadorData.nombre || ""} ${jugadorData.apellido || ""}`.trim(),
     })
     const jugadorDoc = {
       ...jugadorData,

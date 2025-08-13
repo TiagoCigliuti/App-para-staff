@@ -172,14 +172,20 @@ export default function JugadoresPage() {
   useEffect(() => {
     const checkFirestoreConnection = async () => {
       try {
-        const connection = await testFirestoreConnection()
-        setFirestoreConnected(connection.success)
+        console.log("🔄 Verificando conexión a Firestore...")
 
-        const write = await testFirestoreWrite()
-        setFirestoreWriteEnabled(write.success)
+        const connectionResult = await testFirestoreConnection()
+        setFirestoreConnected(connectionResult.success)
+        console.log("📊 Resultado de conexión:", connectionResult)
 
-        console.log("✅ Conexión a Firestore:", connection.success)
-        console.log("✅ Permisos de escritura:", write.success)
+        if (connectionResult.success) {
+          const writeResult = await testFirestoreWrite()
+          setFirestoreWriteEnabled(writeResult.success)
+          console.log("📊 Resultado de permisos de escritura:", writeResult)
+        } else {
+          setFirestoreWriteEnabled(false)
+          console.log("⚠️ Sin conexión, deshabilitando escritura")
+        }
       } catch (error) {
         console.error("❌ Error al verificar conexión a Firestore:", error)
         setFirestoreConnected(false)
@@ -187,7 +193,13 @@ export default function JugadoresPage() {
       }
     }
 
+    // Verificar conexión al cargar la página
     checkFirestoreConnection()
+
+    // Verificar conexión cada 30 segundos
+    const intervalId = setInterval(checkFirestoreConnection, 30000)
+
+    return () => clearInterval(intervalId)
   }, [])
 
   // Generar nombre de visualización automáticamente
@@ -770,38 +782,92 @@ export default function JugadoresPage() {
         // Actualizar jugador existente
         console.log("🔄 Actualizando jugador:", editingJugador.id)
 
-        if (!firestoreConnected || !firestoreWriteEnabled) {
-          setFormError("No se puede actualizar: sin conexión o permisos insuficientes en la base de datos")
+        // Verificar conexión básica a Firestore
+        try {
+          // Hacer una prueba simple de conexión
+          const testRef = doc(db, "jugadores", editingJugador.id)
+          await getDoc(testRef)
+          console.log("✅ Conexión a Firestore verificada")
+        } catch (connectionError: any) {
+          console.error("❌ Error de conexión:", connectionError)
+          setFormError("No hay conexión con la base de datos. Verifica tu conexión a internet.")
           setFormLoading(false)
           return
         }
 
         try {
           const jugadorRef = doc(db, "jugadores", editingJugador.id)
-          const updateData = {
+
+          // Preparar datos de actualización - solo campos que pueden cambiar
+          const updateData: any = {
             nombre: formData.nombre,
             apellido: formData.apellido,
             nombreVisualizacion: formData.nombreVisualizacion,
             fechaNacimiento: formData.fechaNacimiento,
             posicionPrincipal: posicionPrincipalTexto,
-            posicionSecundaria: posicionSecundariaTexto,
             altura: formData.altura ? Number.parseFloat(formData.altura) : null,
             peso: formData.peso ? Number.parseFloat(formData.peso) : null,
             username: formData.username,
             estado: formData.estado,
             fechaActualizacion: new Date(),
             actualizadoPor: user?.email || "unknown",
-            ...(fotoUrl ? { fotoUrl } : {}),
           }
 
+          // Solo agregar posición secundaria si tiene valor
+          if (posicionSecundariaTexto) {
+            updateData.posicionSecundaria = posicionSecundariaTexto
+          }
+
+          // Solo agregar foto si se subió una nueva
+          if (fotoUrl) {
+            updateData.fotoUrl = fotoUrl
+          }
+
+          console.log("📊 Datos a actualizar:", updateData)
+          console.log("🔑 ID del documento:", editingJugador.id)
+          console.log("👤 Usuario actual:", user?.email)
+
+          // Intentar la actualización
           await updateDoc(jugadorRef, updateData)
-          console.log("✅ Jugador actualizado en Firestore:", editingJugador.id)
+          console.log("✅ Jugador actualizado exitosamente en Firestore")
+
+          // Actualizar el estado local inmediatamente
+          const jugadoresActualizados = jugadores.map((jugador) =>
+            jugador.id === editingJugador.id
+              ? {
+                  ...jugador,
+                  ...updateData,
+                  fechaCreacion: jugador.fechaCreacion, // Mantener fecha original
+                }
+              : jugador,
+          )
+          setJugadores(jugadoresActualizados)
+
+          // Actualizar localStorage como backup
+          localStorage.setItem(`jugadores_${cliente?.id}`, JSON.stringify(jugadoresActualizados))
 
           setFormSuccess("Jugador actualizado correctamente")
-          await loadJugadores()
-        } catch (error) {
-          console.log("⚠️ Error actualizando en Firestore:", error)
-          setFormError("Error al actualizar el jugador")
+
+          // Recargar jugadores para asegurar sincronización
+          setTimeout(() => {
+            loadJugadores()
+          }, 1000)
+        } catch (error: any) {
+          console.error("❌ Error detallado actualizando jugador:", error)
+          console.error("❌ Código de error:", error.code)
+          console.error("❌ Mensaje:", error.message)
+
+          if (error.code === "permission-denied") {
+            setFormError("Error de permisos: Verifica que las reglas de Firestore estén actualizadas correctamente")
+          } else if (error.code === "not-found") {
+            setFormError("El jugador no existe o fue eliminado")
+          } else if (error.code === "unavailable") {
+            setFormError("Servicio temporalmente no disponible. Intenta nuevamente en unos momentos.")
+          } else {
+            setFormError(`Error al actualizar el jugador: ${error.message}`)
+          }
+          setFormLoading(false)
+          return
         }
       } else {
         // Crear nuevo jugador
@@ -1081,6 +1147,38 @@ export default function JugadoresPage() {
               <AlertDescription className="text-yellow-800">
                 <strong>Permisos limitados:</strong> Puedes ver los datos pero no crear o editar jugadores. Contacta al
                 administrador para obtener permisos completos.
+              </AlertDescription>
+            </Alert>
+          </div>
+        </div>
+      )}
+
+      {/* Alerta de conexión si es necesario */}
+      {!firestoreConnected && (
+        <div className="bg-red-50 border-b border-red-200">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+            <Alert className="border-red-200 bg-red-50">
+              <AlertCircle className="h-4 w-4 text-red-600" />
+              <AlertDescription className="text-red-800 flex items-center justify-between">
+                <span>
+                  <strong>Sin conexión:</strong> No se puede conectar a la base de datos. Verifica tu conexión a
+                  internet.
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    const connectionResult = await testFirestoreConnection()
+                    setFirestoreConnected(connectionResult.success)
+                    if (connectionResult.success) {
+                      const writeResult = await testFirestoreWrite()
+                      setFirestoreWriteEnabled(writeResult.success)
+                    }
+                  }}
+                  className="ml-4"
+                >
+                  Reconectar
+                </Button>
               </AlertDescription>
             </Alert>
           </div>
